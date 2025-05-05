@@ -1,0 +1,25 @@
+num_node_features: &F 3
+num_hyperedges: &K 30
+hidden_dim: &H 128
+
+timestep_embedding: false
+
+node_encoder:
+    input_dim: *F
+    model_dim: *H
+    num_heads: 4
+    num_layers: 2
+    activation: "silu"
+
+cross_attention:
+    input_dim: *F
+    model_dim: *H
+    num_heads: 4
+    num_layers: 3
+    activation: "silu"
+
+prediction_mlp:
+    input_dim: *H
+    layers: [256, 256]
+    output_dim: *K
+    activation: "silu"
