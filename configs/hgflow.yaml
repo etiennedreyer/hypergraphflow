@@ -18,8 +18,14 @@ cross_attention:
     num_layers: 3
     activation: "silu"
 
-prediction_mlp:
+incidence_predictor:
     input_dim: *H
     layers: [256, 256]
     output_dim: *K
+    activation: "silu"
+
+indicator_predictor:
+    input_dim: *H
+    layers: [64, 32]
+    output_dim: 1
     activation: "silu"

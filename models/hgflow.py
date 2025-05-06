@@ -40,16 +40,31 @@ class HGFlow(nn.Module):
         )
 
 
-        pred_cfg = self.config['prediction_mlp']
-        self.prediction_mlp = nn.Sequential(
+        inc_pred_cfg = self.config['incidence_predictor']
+        self.incidence_predictor = nn.Sequential(
                 MLP(
-                    input_dim=pred_cfg['input_dim'],
-                    layers=pred_cfg['layers'],
-                    output_dim=pred_cfg['output_dim'],
-                    activation=pred_cfg['activation']
+                    input_dim=inc_pred_cfg['input_dim'],
+                    layers=inc_pred_cfg['layers'],
+                    output_dim=inc_pred_cfg['output_dim'],
+                    activation=inc_pred_cfg['activation']
                 ),
                 nn.Sigmoid()
         )
+
+        ind_pred_cfg = self.config['indicator_predictor']
+        self.indicator_predictor = nn.Sequential(
+                MLP(
+                    input_dim=ind_pred_cfg['input_dim'],
+                    layers=ind_pred_cfg['layers'],
+                    output_dim=ind_pred_cfg['output_dim'],
+                    activation=ind_pred_cfg['activation']
+                ),
+                nn.Sigmoid()
+        )
+
+    def get_init_im(self, bs, num_edges, num_nodes, device):
+        im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
+        return im_0
 
     def forward(self, n, im_t, t=None):
 
@@ -70,7 +85,17 @@ class HGFlow(nn.Module):
         # k/v: hyperedge features
         n = self.cross_attention(n, h, c=t)
 
-        ### Prediction
-        u = self.prediction_mlp(n)
+        ### Incidence prediction
+        inc = self.incidence_predictor(n) # [bs, num_nodes, num_edges]
+        inc = inc.permute(0, 2, 1)        # [bs, num_edges, num_nodes]
 
-        return u
+        ### Updated hyperedge features
+        h = torch.einsum('ben, bnd -> bed', inc, n)
+
+        ### Indicator prediction
+        ind = self.indicator_predictor(h) # [bs, num_edges, num_nodes]
+
+        ### Concatenate incidence and indicator predictions
+        im_t = torch.cat([inc, ind], dim=2)
+
+        return im_t
