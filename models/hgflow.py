@@ -7,11 +7,13 @@ from models.mlp import MLP
 
 class HGFlow(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config, flow=True):
         super().__init__()
 
         with open(config, 'r') as f:
             self.config = yaml.safe_load(f)
+
+        self.flow = flow
 
         enc_cfg = self.config['node_encoder']
         self.node_encoder = SelfAttention(
@@ -30,7 +32,7 @@ class HGFlow(nn.Module):
             self.timestep_embedder = None
 
         self.cross_attention = CrossAttention(
-            input_dim_kv=ca_cfg['model_dim'],
+            input_dim_kv=ca_cfg['input_dim'],
             model_dim=ca_cfg['model_dim'],
             num_heads=ca_cfg['num_heads'],
             num_layers=ca_cfg['num_layers'],
@@ -41,26 +43,22 @@ class HGFlow(nn.Module):
 
 
         inc_pred_cfg = self.config['incidence_predictor']
-        self.incidence_predictor = nn.Sequential(
-                MLP(
+        self.incidence_predictor = MLP(
                     input_dim=inc_pred_cfg['input_dim'],
                     layers=inc_pred_cfg['layers'],
                     output_dim=inc_pred_cfg['output_dim'],
                     activation=inc_pred_cfg['activation']
-                ),
-                nn.Sigmoid()
         )
 
         ind_pred_cfg = self.config['indicator_predictor']
-        self.indicator_predictor = nn.Sequential(
-                MLP(
+        self.indicator_predictor = MLP(
                     input_dim=ind_pred_cfg['input_dim'],
                     layers=ind_pred_cfg['layers'],
                     output_dim=ind_pred_cfg['output_dim'],
                     activation=ind_pred_cfg['activation']
-                ),
-                nn.Sigmoid()
         )
+
+        self.sigmoid = nn.Sigmoid()
 
     def get_init_im(self, bs, num_edges, num_nodes, device):
         im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
@@ -68,7 +66,12 @@ class HGFlow(nn.Module):
 
     def forward(self, n, im_t, t=None):
 
+        ### key_padding_mask
         node_mask = torch.isnan(n).any(dim=-1)
+
+        if self.flow:
+            ### normalize input incidence matrix
+            im_t = self.sigmoid(im_t)
 
         ### Node encoding (self-attention)
         n = self.node_encoder(n, key_padding_mask=node_mask)
@@ -77,8 +80,11 @@ class HGFlow(nn.Module):
         h = torch.einsum('ben, bnd -> bed', im_t, n)
 
         ### Timestep embedding
-        t = self.timestep_embedder(t) \
-            if self.timestep_embedder is not None else None
+        if t is not None:
+            if len(t.shape) == 0:
+                t = t.unsqueeze(0)
+            t = self.timestep_embedder(t) \
+                if self.timestep_embedder is not None else None
 
         ### Node update (cross-attention)
         # q: node features
@@ -90,12 +96,16 @@ class HGFlow(nn.Module):
         inc = inc.permute(0, 2, 1)        # [bs, num_edges, num_nodes]
 
         ### Updated hyperedge features
-        h = torch.einsum('ben, bnd -> bed', inc, n)
+        h = torch.einsum('ben, bnd -> bed', im_t, n)
 
         ### Indicator prediction
-        ind = self.indicator_predictor(h) # [bs, num_edges, num_nodes]
+        ind = self.indicator_predictor(h) # [bs, num_edges, 1]
 
         ### Concatenate incidence and indicator predictions
         im_t = torch.cat([inc, ind], dim=2)
+
+        if not self.flow:
+            ### normalize output incidence matrix
+            im_t = self.sigmoid(im_t)
 
         return im_t

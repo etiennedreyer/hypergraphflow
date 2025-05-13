@@ -1,4 +1,6 @@
+import torch
 import torch.nn as nn
+import math
 
 ### From https://github.com/facebookresearch/DiT/blob/main/models.py
 class TimestepEmbedder(nn.Module):

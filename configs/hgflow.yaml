@@ -1,7 +1,11 @@
+### dimensions
 num_node_features: &F 3
-num_hyperedges: &K 30
+num_nodes: &N 30
+num_hyperedges: &K 42
 hidden_dim: &H 128
 
+### hyperparameters
+# timestep_embedding: true
 timestep_embedding: false
 
 node_encoder:
@@ -12,7 +16,7 @@ node_encoder:
     activation: "silu"
 
 cross_attention:
-    input_dim: *F
+    input_dim: *H
     model_dim: *H
     num_heads: 4
     num_layers: 3
