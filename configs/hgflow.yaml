@@ -5,8 +5,8 @@ num_hyperedges: &K 42
 hidden_dim: &H 128
 
 ### hyperparameters
-# timestep_embedding: true
-timestep_embedding: false
+timestep_embedding: true
+# timestep_embedding: false
 
 node_encoder:
     input_dim: *F

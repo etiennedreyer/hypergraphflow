@@ -8,11 +8,33 @@ sys.path.append("../../recurrently_predicting_hypergraphs/")
 import metrics
 
 def transform_im(im, forward=True):
-    return im # HACK!
-    # if forward:
-    #     return im - 0.5
-    # else:
-    #     return im + 0.5
+    if forward:
+        return im*2.0 - 1.0
+    else:
+        return (im + 1.0) / 2.0
+
+def flow_loss(u_pred, u_true, mask=None):
+
+    bs = u_pred.shape[0]
+
+    loss_inc = torch.nn.functional.mse_loss(
+        u_pred[:,:,:-1], u_true[:,:,:-1],
+        reduction='none'
+    )
+
+    if mask is not None:
+        loss_inc[~mask] = 0.0
+
+    loss_inc = loss_inc.view(bs, -1).mean(dim=-1).mean()
+
+    loss_ind = torch.nn.functional.mse_loss(
+        u_pred[:,:,-1], u_true[:,:,-1], 
+        reduction='none'
+    )
+
+    loss_ind = loss_ind.view(bs, -1).mean(dim=-1).mean()
+
+    return loss_inc + loss_ind
 
 
 class torch_wrapper(torch.nn.Module):
@@ -38,7 +60,7 @@ class HGFlowLightning(pl.LightningModule):
             self.net = HGFlow(model_config, flow=True)
             self.FM = self.get_FM()
             # self.sampler = self.get_sampler()
-            self.loss = torch.nn.functional.mse_loss
+            self.loss = flow_loss
         else:
             self.net = HGFlow(model_config, flow=False)
             self.FM = None
@@ -98,14 +120,13 @@ class HGFlowLightning(pl.LightningModule):
         n, im_truth = batch
         bs, num_edges, num_nodes = im_truth.shape
         im_0 = self.net.get_init_im(bs, num_edges, num_nodes, n.device)
-        # im_0 = 0.1*im_truth - 0.5 + 0.1*im_0 # HACK!
 
         if self.FM is not None:
-            im_truth = transform_im(im_truth, forward=True)
-            t, im_t, u_t = self.FM.sample_location_and_conditional_flow(im_0, im_truth)
-            im_t = transform_im(im_t, forward=False)
+            h_exists_mask = im_truth[:,:,-1] > 0
+            t, im_t, u_t = self.FM.sample_location_and_conditional_flow(im_0, transform_im(im_truth, forward=True))
+            im_t = torch.clamp(transform_im(im_t, forward=False), 0, 1)
             pred = self.net(n, im_t[:,:,:-1], t=t)
-            loss = self.loss(pred, u_t)
+            loss = self.loss(pred, u_t, mask=h_exists_mask)
             self.log("loss/train", loss)
 
         else:
@@ -126,13 +147,13 @@ class HGFlowLightning(pl.LightningModule):
         n, im_truth = batch
         bs, num_edges, num_nodes = im_truth.shape
         im_0 = self.net.get_init_im(bs, num_edges, num_nodes, n.device)
-        # im_0 = 0.1*im_truth - 0.5 + 0.1*im_0 # HACK!
 
         if self.FM is not None:
+            h_exists_mask = im_truth[:,:,-1] > 0
             t, im_t, u_t = self.FM.sample_location_and_conditional_flow(im_0, transform_im(im_truth, forward=True))
-            im_t = transform_im(im_t, forward=False)
+            im_t = torch.clamp(transform_im(im_t, forward=False), 0, 1)
             u_pred = self.net(n, im_t[:,:,:-1], t=t)
-            flow_loss = self.loss(u_pred, u_t)
+            flow_loss = self.loss(u_pred, u_t, mask=h_exists_mask)
             
             im_pred = self.sample(n, im_0)[0]
 

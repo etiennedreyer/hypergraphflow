@@ -69,9 +69,9 @@ class HGFlow(nn.Module):
         ### key_padding_mask
         node_mask = torch.isnan(n).any(dim=-1)
 
-        if self.flow:
-            ### normalize input incidence matrix
-            im_t = self.sigmoid(im_t)
+        # if self.flow:
+        #     ### normalize input incidence matrix
+        #     im_t = self.sigmoid(im_t)
 
         ### Node encoding (self-attention)
         n = self.node_encoder(n, key_padding_mask=node_mask)
