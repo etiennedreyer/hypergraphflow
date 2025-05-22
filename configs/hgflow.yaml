@@ -1,12 +1,13 @@
 ### dimensions
 num_node_features: &F 3
 num_nodes: &N 30
-num_hyperedges: &K 42
-hidden_dim: &H 128
+num_edges: &K 42
+hidden_dim: &H 36
+
 
 ### hyperparameters
 timestep_embedding: true
-# timestep_embedding: false
+indicator_prediction: true
 
 node_encoder:
     input_dim: *F
