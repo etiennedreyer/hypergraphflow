@@ -187,7 +187,7 @@ class HGFlowLightning(pl.LightningModule):
             im_t = torch.clamp(transform_im(im_t, forward=False), 0, 1)
             pred = self.net(im_t, t, n)
             # loss = self.loss(pred, u_t, mask=h_exists_mask)
-            loss = self.loss(pred, im_truth) #, mask=h_exists_mask)
+            loss = self.loss(pred, im_truth).mean() #, mask=h_exists_mask)
             # loss = self.loss(pred, u_t).mean()
             self.log("loss/train", loss)
 
@@ -215,7 +215,7 @@ class HGFlowLightning(pl.LightningModule):
             t, im_t = self.sample_location_and_conditional_flow(transform_im(im_truth, forward=True))
             im_t = torch.clamp(transform_im(im_t, forward=False), 0, 1)
             pred = self.net(im_t, t, n)
-            flow_loss = self.loss(pred, im_truth) #, mask=h_exists_mask)
+            flow_loss = self.loss(pred, im_truth).mean() #, mask=h_exists_mask)
             # flow_loss = self.loss(u_pred, u_t).mean()
             
             im_pred = self.sample(im_0, n)

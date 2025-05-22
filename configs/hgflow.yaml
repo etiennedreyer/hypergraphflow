@@ -2,7 +2,7 @@
 num_node_features: &F 3
 num_nodes: &N 30
 num_edges: &K 42
-hidden_dim: &H 36
+hidden_dim: &H 48
 
 
 ### hyperparameters
