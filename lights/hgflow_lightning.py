@@ -11,9 +11,11 @@ import metrics
 
 def transform_im(im, forward=True):
     if forward:
-        return im*2.0 - 1.0
+        # return im*2.0 - 1.0 #HACK!
+        return im
     else:
-        return (im + 1.0) / 2.0
+        # return (im + 1.0) / 2.0 #HACK!
+        return im
 
 
 from flow_matching.utils import ModelWrapper
@@ -84,6 +86,16 @@ class HGFlowLightning(pl.LightningModule):
             steps=self.config['sampler'].get('steps', 50),
             save_seq=save_seq
         )
+
+    def align_incidence_matrix(self, im_pred, im_true):
+
+        _loss, indices = self.loss(im_pred, im_true, return_indices=True)
+        indices = torch.from_numpy(indices[:,1,...])
+        indices = indices.unsqueeze(-1).expand(-1, -1, im_pred.shape[2])
+
+        im_pred_aligned = torch.gather(im_pred, 1, indices)
+
+        return im_pred_aligned, indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

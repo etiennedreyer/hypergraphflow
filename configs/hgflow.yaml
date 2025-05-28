@@ -25,12 +25,12 @@ cross_attention:
 
 incidence_predictor:
     input_dim: *H
-    layers: [256, 256]
+    layers: [256, 256, 128]
     output_dim: *K
     activation: "silu"
 
 indicator_predictor:
     input_dim: *H
-    layers: [64, 32]
+    layers: [128, 64, 32]
     output_dim: 1
     activation: "silu"

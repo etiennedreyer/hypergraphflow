@@ -12,4 +12,4 @@ flow_match:
 
 sampler:
   solver: 'dopri5'
-  steps: 50
+  steps: 25
