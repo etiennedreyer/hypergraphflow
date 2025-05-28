@@ -73,7 +73,7 @@ class HGFlow(nn.Module):
 
     def get_init_im(self, bs, num_edges, num_nodes, device):
         im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
-        return im_0*0 # HACK!
+        return im_0
 
     def update_sequence(self, x, t, n):
 

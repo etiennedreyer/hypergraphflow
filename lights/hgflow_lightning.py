@@ -11,11 +11,11 @@ import metrics
 
 def transform_im(im, forward=True):
     if forward:
-        # return im*2.0 - 1.0 #HACK!
-        return im
+        # return im*2.0 - 1.0
+        return im #HACK
     else:
-        # return (im + 1.0) / 2.0 #HACK!
-        return im
+        # return (im + 1.0) / 2.0
+        return im #HACK
 
 
 from flow_matching.utils import ModelWrapper
@@ -144,6 +144,7 @@ class HGFlowLightning(pl.LightningModule):
             flow_loss = self.loss(pred, im_truth).mean()
             
             im_pred = self.sample(im_0, n)
+            im_pred = transform_im(im_pred, forward=False)
             im_pred = torch.clamp(im_pred, 0, 1)
             # im_pred = im_pred * im_truth[:,:,-1:]
 
