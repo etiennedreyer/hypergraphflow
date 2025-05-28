@@ -35,6 +35,13 @@ class HGFlow(nn.Module):
         else:
             self.timestep_embedder = None
 
+        self.edge_mlp = MLP(
+            input_dim=self.config['hidden_dim'],
+            layers=[128, 128],
+            output_dim=self.config['hidden_dim'],
+            activation='relu'
+        )
+
         self.cross_attention = CrossAttention(
             input_dim_kv=ca_cfg['input_dim'],
             model_dim=ca_cfg['model_dim'],
@@ -68,6 +75,22 @@ class HGFlow(nn.Module):
         im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
         return im_0*0 # HACK!
 
+    def update_sequence(self, x, t, n):
+
+        im_t = x
+
+        ### Hyperedge encoding (incidence-weighted sum of node vectors)
+        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
+
+        ### Node update (cross-attention)
+        # q: node features
+        # k/v: hyperedge features
+        n = self.cross_attention(n, h, c=t)
+
+        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
+
+        return n, h
+
     def forward(self, x, t, n):
 
         im_t = x
@@ -77,7 +100,7 @@ class HGFlow(nn.Module):
         if num_nodes == self.num_nodes + 1:
             indicator_added = True
             ind_t = im_t[:, :, -1:]  # indicator
-            im_t  = im_t[:, :, :-1] # incidence
+            im_t  = im_t[:, :, :-1]  # incidence
             num_nodes -= 1
         else:
             indicator_added = False
@@ -96,9 +119,6 @@ class HGFlow(nn.Module):
         ### Node encoding (self-attention)
         n = self.node_encoder(n, key_padding_mask=node_mask)
 
-        ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        h = torch.einsum('ben, bnd -> bed', im_t, n)
-
         ### Timestep embedding
         if t is not None:
             if len(t.shape) == 0:
@@ -106,25 +126,22 @@ class HGFlow(nn.Module):
             t = self.timestep_embedder(t) \
                 if self.timestep_embedding else None
 
-        ### Node update (cross-attention)
-        # q: node features
-        # k/v: hyperedge features
-        n = self.cross_attention(n, h, c=t)
-        
+
+        n, h = self.update_sequence(im_t, t, n)
+
         ### Incidence prediction
         inc = self.incidence_predictor(n) # [bs, num_nodes, num_edges]
         inc = inc.permute(0, 2, 1)        # [bs, num_edges, num_nodes]
 
         if indicator_added:
             if self.indicator_prediction:
-                ### Updated hyperedge features
-                h = torch.einsum('ben, bnd -> bed', im_t, n)
 
                 ### Indicator prediction
                 ind = self.indicator_predictor(h) # [bs, num_edges, 1]
 
                 ### Concatenate incidence and indicator predictions
                 im_t = torch.cat([inc, ind], dim=2)
+                # im_t = torch.cat([inc + im_t, ind + ind_t], dim=2)
 
             else:
                 im_t = torch.cat([inc, ind_t], dim=2)

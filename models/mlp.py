@@ -14,6 +14,8 @@ class MLP(nn.Module):
     def get_activation(self, activation):
         if activation == 'relu':
             return nn.ReLU()
+        elif activation == 'sigmoid':
+            return nn.Sigmoid()
         elif activation == 'silu':
             return nn.SiLU()
         else:

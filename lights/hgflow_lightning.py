@@ -144,7 +144,8 @@ class HGFlowLightning(pl.LightningModule):
             flow_loss = self.loss(pred, im_truth).mean()
             
             im_pred = self.sample(im_0, n)
-            im_pred = im_pred * im_truth[:,:,-1:]
+            im_pred = torch.clamp(im_pred, 0, 1)
+            # im_pred = im_pred * im_truth[:,:,-1:]
 
         else:
             im_pred = self.net(im_0, t=None, n=n)
