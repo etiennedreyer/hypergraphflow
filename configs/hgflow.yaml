@@ -14,6 +14,7 @@ node_encoder:
     model_dim: *H
     num_heads: 4
     num_layers: 2
+    gated: false
     activation: "silu"
 
 cross_attention:
@@ -21,11 +22,12 @@ cross_attention:
     model_dim: *H
     num_heads: 4
     num_layers: 3
+    gated: false
     activation: "silu"
 
 incidence_predictor:
     input_dim: *H
-    layers: [256, 256, 128]
+    layers: [256, 256]
     output_dim: *K
     activation: "relu"
 

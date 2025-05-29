@@ -25,7 +25,8 @@ class HGFlow(nn.Module):
             model_dim=enc_cfg['model_dim'],
             num_heads=enc_cfg['num_heads'],
             num_layers=enc_cfg['num_layers'],
-            activation=enc_cfg['activation']
+            activation=enc_cfg['activation'],
+            gated=enc_cfg['gated'],
         )
 
         ca_cfg = self.config['cross_attention']
@@ -49,7 +50,8 @@ class HGFlow(nn.Module):
             num_layers=ca_cfg['num_layers'],
             activation=ca_cfg['activation'],
             c_dim=ca_cfg['model_dim'] \
-                if self.timestep_embedding else None
+                if self.timestep_embedding else None,
+            gated=ca_cfg['gated'],
         )
 
         inc_pred_cfg = self.config['incidence_predictor']

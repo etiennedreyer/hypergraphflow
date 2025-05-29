@@ -14,6 +14,7 @@ class Attention(nn.Module):
         num_layers=3,
         batch_first=True,
         activation="silu",
+        gated=False,
     ):
         super().__init__()
 
@@ -26,6 +27,7 @@ class Attention(nn.Module):
         self.num_heads = num_heads
         self.num_layers = num_layers
         self.batch_first = batch_first
+        self.gated = gated
 
         self.mha_layers = nn.ModuleList([
             nn.MultiheadAttention(embed_dim=model_dim, 
@@ -42,13 +44,17 @@ class Attention(nn.Module):
 
         ### Context embedding projection to modulate LayerNorms (scale, shift)
         if c_dim is not None:
-            self.c_proj1 = nn.ModuleList([
-                nn.Sequential(
+            self.c_proj1 = nn.ModuleList()
+            for _ in range(self.num_layers):
+                proj = nn.Sequential(
                     nn.SiLU() if activation == "silu" else nn.ReLU(),
-                    nn.Linear(c_dim, model_dim * 2)
+                    nn.Linear(c_dim, model_dim * (2+int(gated))) # scale, shift, (gate)
                 )
-                for _ in range(num_layers)
-            ])
+
+                ### Initial scale, shift, gate are 0
+                nn.init.constant_(proj[1].weight, 0)
+                nn.init.constant_(proj[1].bias, 0)
+                self.c_proj1.append(proj)
 
         self.ffn_layers = nn.ModuleList([
             MLP(model_dim, 
@@ -65,16 +71,20 @@ class Attention(nn.Module):
         ])
 
         if c_dim is not None:
-            self.c_proj2 = nn.ModuleList([
-                nn.Sequential(
+            self.c_proj2 = nn.ModuleList()
+            for _ in range(self.num_layers):
+                proj = nn.Sequential(
                     nn.SiLU() if activation == "silu" else nn.ReLU(),
-                    nn.Linear(c_dim, model_dim * 2)
+                    nn.Linear(c_dim, model_dim * (2+int(gated))) # scale, shift, (gate)
                 )
-                for _ in range(num_layers)
-            ])
+
+                ### Initial scale, shift, gate are 0
+                nn.init.constant_(proj[1].weight, 0)
+                nn.init.constant_(proj[1].bias, 0)
+                self.c_proj2.append(proj)
 
     def modulate(self, x, scale, shift):
-        return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+        return x * (1 + scale) + shift
 
     def get_qkv(self, x, y=None):
         """
@@ -97,28 +107,50 @@ class Attention(nn.Module):
             v = v.permute(1, 0, 2)
 
         for i in range(self.num_layers):
-            attn = self.mha_layers[i](q, k, v, 
-                                      key_padding_mask=key_padding_mask
-                                      )[0]
 
-            ### residual + norm 1
-            q = self.norm1_layers[i](q + attn)
+            ### prenorm query for mha
+            q_norm = self.norm1_layers[i](q)
 
             if self.c_dim is not None:
                 ### context modulation 1
-                scale1, shift1 = self.c_proj1[i](c).chunk(2, dim=-1)
-                q = self.modulate(q, scale1, shift1)
+                if self.gated:
+                    scale1, shift1, gate1 = self.c_proj1[i](c).unsqueeze(1).chunk(3, dim=-1)
+                else:
+                    scale1, shift1 = self.c_proj1[i](c).unsqueeze(1).chunk(2, dim=-1)
+                q_norm = self.modulate(q_norm, scale1, shift1)
 
-            ### feed forward
-            ffn_out = self.ffn_layers[i](q)
+            ### multi-head attention
+            attn = self.mha_layers[i](q_norm, k, v, 
+                                      key_padding_mask=key_padding_mask
+                                      )[0]
 
-            ### residual + norm 2
-            q = self.norm2_layers[i](q + ffn_out)
+            if self.gated and self.c_dim is not None:
+                ### gate attention
+                attn = (1 + gate1) * attn
+
+            ### residual + attention
+            q = q + attn
+
+            ### prenorm query for ffn
+            q_norm = self.norm2_layers[i](q)
 
             if self.c_dim is not None:
                 ### context modulation 2
-                scale2, shift2 = self.c_proj2[i](c).chunk(2, dim=-1)
-                q = self.modulate(q, scale2, shift2)
+                if self.gated:
+                    scale2, shift2, gate2 = self.c_proj2[i](c).unsqueeze(1).chunk(3, dim=-1)
+                else:
+                    scale2, shift2 = self.c_proj2[i](c).unsqueeze(1).chunk(2, dim=-1)
+                q_norm = self.modulate(q_norm, scale2, shift2)
+
+            ### feed forward
+            ffn_out = self.ffn_layers[i](q_norm)
+
+            if self.gated and self.c_dim is not None:
+                ### gate ffn
+                ffn_out = (1 + gate2) * ffn_out
+
+            ### residual + ffn
+            q = q + ffn_out
 
         return q
     
