@@ -9,8 +9,13 @@ hidden_dim: &H 48
 timestep_embedding: true
 indicator_prediction: true
 
-node_encoder:
+node_embedder:
     input_dim: *F
+    layers: [*H, *H]
+    output_dim: *H
+    activation: "relu"
+
+node_encoder:
     model_dim: *H
     num_heads: 4
     num_layers: 2
@@ -18,7 +23,6 @@ node_encoder:
     activation: "silu"
 
 cross_attention:
-    input_dim: *H
     model_dim: *H
     num_heads: 4
     num_layers: 3

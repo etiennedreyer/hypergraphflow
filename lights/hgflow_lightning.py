@@ -26,11 +26,16 @@ class VelocityModelFromX1Model(ModelWrapper):
         super().__init__(model=x_1_model)
         self.path = path
 
-    def forward(self, x_t, t, condition=None):
-        x_1_pred = super().forward(x_t, t, n=condition)
+    def forward(self, x, t, **model_extras):
+
+        condition = model_extras['model_extras'].get('condition', None)
+
+        # x_1_pred = super().forward(x, t, condition)
+        x_1_pred = self.model(x, t, n=condition)
+
         return self.path.target_to_velocity(
             x_1=x_1_pred,
-            x_t=x_t,
+            x_t=x,
             t=t,
         )
         
@@ -79,23 +84,34 @@ class HGFlowLightning(pl.LightningModule):
 
     def sample(self, im_0, n, save_seq=False):
 
-        return self.sampler(
-            VelocityModelFromX1Model(self.net, self.FM),
-            x_0=im_0,
-            condition=n,
-            steps=self.config['sampler'].get('steps', 50),
-            save_seq=save_seq
-        )
+        from flow_matching.solver import ODESolver
+        solver = ODESolver(velocity_model=VelocityModelFromX1Model(self.net, self.FM))
+        num_steps = 25
+        return solver.sample(x_init=im_0, 
+                             method='euler',
+                             step_size=1.0 / num_steps,
+                             time_grid=torch.linspace(0, 1, num_steps),
+                             model_extras={'condition': n},
+                             return_intermediates=save_seq
+                            )
+
+        # return self.sampler(
+        #     VelocityModelFromX1Model(self.net, self.FM),
+        #     x_0=im_0,
+        #     condition=n,
+        #     steps=self.config['sampler'].get('steps', 25),
+        #     save_seq=save_seq
+        # )
 
     def align_incidence_matrix(self, im_pred, im_true):
 
-        _loss, indices = self.loss(im_pred, im_true, return_indices=True)
+        loss, indices = self.loss(im_pred, im_true, return_indices=True)
         indices = torch.from_numpy(indices[:,1,...])
         indices = indices.unsqueeze(-1).expand(-1, -1, im_pred.shape[2])
 
         im_pred_aligned = torch.gather(im_pred, 1, indices)
 
-        return im_pred_aligned, indices
+        return im_pred_aligned, loss, indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
