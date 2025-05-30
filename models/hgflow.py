@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import yaml
-from models.attention import SelfAttentionLayer, CrossAttentionLayer
+from models.attention import SelfAttentionLayer, CrossAttentionLayer, DualUpdateBlock
 from models.time import TimestepEmbedder
 from models.mlp import MLP
 
@@ -16,6 +16,7 @@ class HGFlow(nn.Module):
         self.flow = flow
         self.num_nodes = self.config['num_nodes']
         self.num_edges = self.config['num_edges']
+        self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
         self.indicator_prediction = self.config['indicator_prediction']
 
@@ -45,15 +46,28 @@ class HGFlow(nn.Module):
         else:
             self.timestep_embedder = None
 
+        edge_mlp_cfg = self.config['edge_mlp']
         self.edge_mlp = MLP(
-            input_dim=self.config['hidden_dim'],
-            layers=[128, 128],
-            output_dim=self.config['hidden_dim'],
+            input_dim=edge_mlp_cfg['input_dim'],
+            layers=edge_mlp_cfg['layers'],
+            output_dim= edge_mlp_cfg['output_dim'],
             activation='relu'
         )
 
+        # self.cross_attention_layers = nn.ModuleList([
+        #                                 CrossAttentionLayer(
+        #                                     model_dim=ca_cfg['model_dim'],
+        #                                     num_heads=ca_cfg['num_heads'],
+        #                                     activation=ca_cfg['activation'],
+        #                                     c_dim=ca_cfg['model_dim'] \
+        #                                         if self.timestep_embedding else None,
+        #                                     gated=ca_cfg['gated'],
+        #                                 )
+        #                                 for _ in range(ca_cfg['num_layers'])
+        #                             ])
+
         self.cross_attention_layers = nn.ModuleList([
-                                        CrossAttentionLayer(
+                                        DualUpdateBlock(
                                             model_dim=ca_cfg['model_dim'],
                                             num_heads=ca_cfg['num_heads'],
                                             activation=ca_cfg['activation'],
@@ -87,22 +101,6 @@ class HGFlow(nn.Module):
         im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
         return im_0
 
-    def update_sequence(self, x, t, n):
-
-        im_t = x
-
-        ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
-
-        ### Node update (cross-attention)
-        # q: node features
-        # k/v: hyperedge features
-        for layer in self.cross_attention_layers:
-            n = layer(n, h, c=t)
-
-        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
-
-        return n, h
 
     def forward(self, x, t, n):
 
@@ -143,8 +141,14 @@ class HGFlow(nn.Module):
             t = self.timestep_embedder(t) \
                 if self.timestep_embedding else None
 
-
-        n, h = self.update_sequence(im_t, t, n)
+        ### Hyperedge encoding (incidence-weighted sum of node vectors)
+        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
+        
+        ### Node update (cross-attention)
+        # q: node features
+        # k/v: hyperedge features
+        for layer in self.cross_attention_layers:
+            n, h = layer(n, h, c=t)
 
         ### Incidence prediction
         inc = self.incidence_predictor(n) # [bs, num_nodes, num_edges]

@@ -30,7 +30,6 @@ class VelocityModelFromX1Model(ModelWrapper):
 
         condition = model_extras['model_extras'].get('condition', None)
 
-        # x_1_pred = super().forward(x, t, condition)
         x_1_pred = self.model(x, t, n=condition)
 
         return self.path.target_to_velocity(
@@ -181,6 +180,8 @@ class HGFlowLightning(pl.LightningModule):
             logs["flow"] = flow_loss
 
         self.log_dict({f"{k}/val":v for k,v in logs.items()})
+
+        print('Validation loss: ', loss)
 
         return loss
     

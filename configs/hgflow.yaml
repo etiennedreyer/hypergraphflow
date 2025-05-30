@@ -11,32 +11,38 @@ indicator_prediction: true
 
 node_embedder:
     input_dim: *F
-    layers: [*H, *H]
+    layers: [*H]
     output_dim: *H
     activation: "relu"
 
 node_encoder:
     model_dim: *H
-    num_heads: 4
+    num_heads: 1
     num_layers: 2
     gated: false
     activation: "silu"
 
 cross_attention:
     model_dim: *H
-    num_heads: 4
+    num_heads: 1
     num_layers: 3
     gated: false
     activation: "silu"
 
+edge_mlp:
+    input_dim: *H
+    layers: [*H]
+    output_dim: *H
+    activation: "relu"
+
 incidence_predictor:
     input_dim: *H
-    layers: [256, 256]
+    layers: [*H, *H]
     output_dim: *K
     activation: "relu"
 
 indicator_predictor:
     input_dim: *H
-    layers: [128, 64, 32]
+    layers: [*H]
     output_dim: 1
     activation: "relu"
