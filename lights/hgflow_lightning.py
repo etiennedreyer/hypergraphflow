@@ -181,7 +181,5 @@ class HGFlowLightning(pl.LightningModule):
 
         self.log_dict({f"{k}/val":v for k,v in logs.items()})
 
-        print('Validation loss: ', loss)
-
         return loss
     

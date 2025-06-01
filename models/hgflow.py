@@ -47,11 +47,14 @@ class HGFlow(nn.Module):
             self.timestep_embedder = None
 
         edge_mlp_cfg = self.config['edge_mlp']
-        self.edge_mlp = MLP(
-            input_dim=edge_mlp_cfg['input_dim'],
-            layers=edge_mlp_cfg['layers'],
-            output_dim= edge_mlp_cfg['output_dim'],
-            activation='relu'
+        self.edge_mlp = nn.Sequential(
+            MLP(
+                input_dim=edge_mlp_cfg['input_dim'],
+                layers=edge_mlp_cfg['layers'],
+                output_dim= edge_mlp_cfg['output_dim'],
+                activation='relu'
+            ),
+            nn.LayerNorm(edge_mlp_cfg['output_dim']),
         )
 
         # self.cross_attention_layers = nn.ModuleList([
@@ -130,6 +133,9 @@ class HGFlow(nn.Module):
         ### Node embedding
         n = self.node_embedder(n)  # [bs, num_nodes, model_dim]
 
+        ### Hyperedge encoding (incidence-weighted sum of node vectors)
+        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
+
         ### Node encoding (self-attention)
         for layer in self.node_encoder_layers:
             n = layer(n, key_padding_mask=node_mask)
@@ -140,9 +146,6 @@ class HGFlow(nn.Module):
                 t = t.unsqueeze(0)
             t = self.timestep_embedder(t) \
                 if self.timestep_embedding else None
-
-        ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
         
         ### Node update (cross-attention)
         # q: node features
