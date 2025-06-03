@@ -37,12 +37,12 @@ edge_mlp:
 
 incidence_predictor:
     input_dim: *H
-    layers: [*H, *H]
-    output_dim: *K
+    layers: [128, 64, 16]
+    output_dim: 1
     activation: "relu"
 
 indicator_predictor:
     input_dim: *H
-    layers: [*H]
+    layers: [128, 16]
     output_dim: 1
     activation: "relu"

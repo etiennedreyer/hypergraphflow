@@ -19,6 +19,7 @@ class HGFlow(nn.Module):
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
         self.indicator_prediction = self.config['indicator_prediction']
+        self.randomize_skip_prob = 0.25
 
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
@@ -83,7 +84,7 @@ class HGFlow(nn.Module):
 
         inc_pred_cfg = self.config['incidence_predictor']
         self.incidence_predictor = MLP(
-                    input_dim=inc_pred_cfg['input_dim'],
+                    input_dim=2*inc_pred_cfg['input_dim'] + 1,
                     layers=inc_pred_cfg['layers'],
                     output_dim=inc_pred_cfg['output_dim'],
                     activation=inc_pred_cfg['activation']
@@ -92,7 +93,7 @@ class HGFlow(nn.Module):
         if self.indicator_prediction:
             ind_pred_cfg = self.config['indicator_predictor']
             self.indicator_predictor = MLP(
-                        input_dim=ind_pred_cfg['input_dim'],
+                        input_dim=ind_pred_cfg['input_dim'] + 1,
                         layers=ind_pred_cfg['layers'],
                         output_dim=ind_pred_cfg['output_dim'],
                         activation=ind_pred_cfg['activation']
@@ -153,15 +154,32 @@ class HGFlow(nn.Module):
         for layer in self.cross_attention_layers:
             n, h = layer(n, h, c=t)
 
-        ### Incidence prediction
-        inc = self.incidence_predictor(n) # [bs, num_nodes, num_edges]
-        inc = inc.permute(0, 2, 1)        # [bs, num_edges, num_nodes]
+        ### Random skip mask
+        if self.training and self.randomize_skip_prob > 0:
+            random_mask = torch.rand(bs, device=im_t.device) < self.randomize_skip_prob
+            im_skip = im_t * random_mask.view(bs, 1, 1)
+            ind_skip = ind_t * random_mask.view(bs, 1, 1) if indicator_added else None
+        else:
+            im_skip = im_t
+            ind_skip = ind_t if indicator_added else None
+
+        ### Incidence prediction (matrix-wise)
+        # input shape: (bs, num_edges, num_nodes, model_dim)
+        # output shape: (bs, num_edges, num_nodes)
+        inputs = torch.cat([
+            torch.repeat_interleave(n.unsqueeze(1), num_edges, dim=1), 
+            torch.repeat_interleave(h.unsqueeze(2), num_nodes, dim=2),
+            im_skip.unsqueeze(-1)
+        ], dim=-1)
+        inc = self.incidence_predictor(inputs)
+        inc = inc.squeeze(-1)  # [bs, num_edges, num_nodes]
 
         if indicator_added:
             if self.indicator_prediction:
 
                 ### Indicator prediction
-                ind = self.indicator_predictor(h) # [bs, num_edges, 1]
+                inputs = torch.cat([h, ind_skip], dim=-1)  # [bs, num_edges, model_dim + 1]
+                ind = self.indicator_predictor(inputs) # [bs, num_edges, 1]
 
                 ### Concatenate incidence and indicator predictions
                 im_t = torch.cat([inc, ind], dim=2)
