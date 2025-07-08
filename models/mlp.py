@@ -5,11 +5,14 @@ class MLP(nn.Module):
         super().__init__()
         self.layers = nn.ModuleList()
         self.activation = self.get_activation(activation)
-        self.layers.append(nn.Linear(input_dim, layers[0]))
-        for i in range(len(layers) - 1):
-            self.layers.append(nn.Linear(layers[i], layers[i + 1]))
-            self.layers.append(self.activation)
-        self.layers.append(nn.Linear(layers[-1], output_dim))
+        if len(layers) == 0:
+            self.layers.append(nn.Linear(input_dim, output_dim))
+        else:
+            self.layers.append(nn.Linear(input_dim, layers[0]))
+            for i in range(len(layers) - 1):
+                self.layers.append(nn.Linear(layers[i], layers[i + 1]))
+                self.layers.append(self.activation)
+            self.layers.append(nn.Linear(layers[-1], output_dim))
 
     def get_activation(self, activation):
         if activation == 'relu':

@@ -71,21 +71,20 @@ class HGFlowLightning(pl.LightningModule):
 
         ### standard normal by default
         if im_0 is None:
-            im_0 = torch.randn_like(im_1, device=im_1.device)
+            im_0 = self.net.get_init_im(*im_1.shape, device=im_1.device) #0.2 + 0.05*torch.randn_like(im_1, device=im_1.device)
 
         ### random timestep between 0 and 1
         t = torch.rand(im_1.shape[0], device=im_1.device)
-
+        # t = torch.pow(t, 3)
         ### sample conditional path
         sample = self.FM.sample(t=t, x_0=im_0, x_1=im_1)
 
         return t, sample.x_t
 
-    def sample(self, im_0, n, save_seq=False):
+    def sample(self, im_0, n, save_seq=False, num_steps=12):
 
         from flow_matching.solver import ODESolver
         solver = ODESolver(velocity_model=VelocityModelFromX1Model(self.net, self.FM))
-        num_steps = 25
         return solver.sample(x_init=im_0, 
                              method='euler',
                              step_size=1.0 / num_steps,

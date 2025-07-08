@@ -154,7 +154,24 @@ class CrossAttentionLayer(AttentionLayer):
         q = self.q_proj(x)
         k, v = self.kv_proj(y).chunk(2, dim=-1)
         return q, k, v
-    
+
+class DecoderBlock(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.SA = SelfAttentionLayer(*args, **kwargs)
+        self.CA = CrossAttentionLayer(*args, **kwargs)
+
+    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None):
+
+        ### Self attention
+        x_a = self.SA(x_a, c=c, key_padding_mask=key_padding_mask_SA)
+
+        ### Cross attention
+        x_a = self.CA(x_a, x_b, c=c, key_padding_mask=key_padding_mask_CA)
+
+        return x_a
+
 class DualUpdateBlock(nn.Module):
 
     def __init__(self, *args, **kwargs):
