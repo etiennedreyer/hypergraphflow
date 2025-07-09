@@ -1,0 +1,9 @@
+### dimensions
+num_node_features: &F 3
+num_edges: &K 42
+hidden_dim: &H 128
+
+### refinement
+iters_total: 16
+iters_bptt: 4
+blocks_bptt: 2
