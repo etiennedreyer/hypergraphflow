@@ -71,8 +71,17 @@ class AttentionLayer(nn.Module):
         """
         pass
 
-    def forward(self, x, y=None, c=None, key_padding_mask=None):
-        
+    def forward(self, x, y=None, c=None, key_padding_mask=None, attn_mask=None):
+        """
+        Forward pass for the AttentionLayer.
+
+        Args:
+            x: input tensor (batch_size, seq_len, model_dim)
+            y: optional input for cross attention
+            c: context tensor
+            key_padding_mask: optional mask for padding
+            attn_mask: optional attention mask for MultiheadAttention
+        """
         assert self.c_dim is None or c is not None, \
             "context c must be provided if c_dim is not None!"
 
@@ -88,7 +97,6 @@ class AttentionLayer(nn.Module):
         q_norm = self.norm1(q)
 
         if self.c_dim is not None:
-
             ### unpack parameters from context projection
             if self.gated:
                 scale1, shift1, gate1, \
@@ -101,7 +109,7 @@ class AttentionLayer(nn.Module):
             q_norm = self.modulate(q_norm, scale1, shift1)
 
         ### multi-head attention
-        attn = self.mha(q_norm, k, v, key_padding_mask=key_padding_mask)[0]
+        attn = self.mha(q_norm, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
 
         if self.gated and self.c_dim is not None:
             ### gate attention
@@ -162,13 +170,25 @@ class DecoderBlock(nn.Module):
         self.SA = SelfAttentionLayer(*args, **kwargs)
         self.CA = CrossAttentionLayer(*args, **kwargs)
 
-    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None):
+    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None,
+                attn_mask_SA=None, attn_mask_CA=None):
+        """
+        Forward pass for DecoderBlock.
 
+        Args:
+            x_a: input tensor (batch_size, seq_len, model_dim)
+            x_b: cross input tensor
+            c: context tensor
+            key_padding_mask_SA: key padding mask for self-attention
+            key_padding_mask_CA: key padding mask for cross-attention
+            attn_mask_SA: attention mask for self-attention
+            attn_mask_CA: attention mask for cross-attention
+        """
         ### Self attention
-        x_a = self.SA(x_a, c=c, key_padding_mask=key_padding_mask_SA)
+        x_a = self.SA(x_a, c=c, key_padding_mask=key_padding_mask_SA, attn_mask=attn_mask_SA)
 
         ### Cross attention
-        x_a = self.CA(x_a, x_b, c=c, key_padding_mask=key_padding_mask_CA)
+        x_a = self.CA(x_a, x_b, c=c, key_padding_mask=key_padding_mask_CA, attn_mask=attn_mask_CA)
 
         return x_a
 

@@ -2,7 +2,7 @@
 num_node_features: &F 3
 num_nodes: &N 30
 num_edges: &K 42
-hidden_dim: &H 48
+hidden_dim: &H 36
 
 
 ### hyperparameters
@@ -18,14 +18,14 @@ node_embedder:
 node_encoder:
     model_dim: *H
     num_heads: 3
-    num_layers: 2
+    num_layers: 3
     gated: false
     activation: "silu"
 
 cross_attention:
     model_dim: *H
     num_heads: 3
-    num_layers: 3
+    num_layers: 5
     gated: false
     activation: "silu"
 

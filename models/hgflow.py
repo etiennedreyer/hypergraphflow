@@ -94,12 +94,12 @@ class HGFlow(nn.Module):
         ])
 
         inc_pred_cfg = self.config['incidence_predictor']
-        self.incidence_predictor = MLP(
-                    input_dim=2*inc_pred_cfg['input_dim'] + 1,
-                    layers=inc_pred_cfg['layers'],
-                    output_dim=inc_pred_cfg['output_dim'],
-                    activation=inc_pred_cfg['activation']
-        )
+        # self.incidence_predictor = MLP(
+        #             input_dim=2*inc_pred_cfg['input_dim'] + 1,
+        #             layers=inc_pred_cfg['layers'],
+        #             output_dim=inc_pred_cfg['output_dim'],
+        #             activation=inc_pred_cfg['activation']
+        # )
 
         if self.indicator_prediction:
             ind_pred_cfg = self.config['indicator_predictor']
@@ -163,9 +163,10 @@ class HGFlow(nn.Module):
         ### Node update (cross-attention)
         # q: hyperedge features
         # k/v: node features
+        attn_mask_CA = (im_t < 0.5).repeat(self.decoder_layers[0].CA.num_heads, 1, 1)
         for layer in self.decoder_layers:
             # n, h = layer(n, h, c=t)
-            h = layer(h, n, c=t) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+            h = layer(h, n, c=t) #, attn_mask_CA=attn_mask_CA) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
 
         ### Random skip mask
         if self.training and self.randomize_skip_prob > 0:
@@ -179,6 +180,7 @@ class HGFlow(nn.Module):
         ### Incidence prediction (matrix-wise)
         # input shape: (bs, num_edges, num_nodes, model_dim)
         # output shape: (bs, num_edges, num_nodes)
+        '''
         inputs = torch.cat([
             torch.repeat_interleave(n.unsqueeze(1), num_edges, dim=1), 
             torch.repeat_interleave(h.unsqueeze(2), num_nodes, dim=2),
@@ -186,6 +188,16 @@ class HGFlow(nn.Module):
         ], dim=-1)
         inc_delta = self.incidence_predictor(inputs).squeeze(-1) # [bs, num_edges, num_nodes]
         inc = im_t + inc_delta
+        '''
+        ### dot-product approach:
+        # n.shape = torch.Size([64, 30, 36])
+        # h.shape = torch.Size([64, 42, 36])
+        # inc = torch.nn.functional.softmax(h @ torch.transpose(n, 1, 2), dim=-1)
+
+        inc = self.sigmoid(
+                (h @ torch.transpose(n, 1, 2)) #/
+                    # torch.sqrt(torch.tensor(self.hidden_dim, device=im_t.device)),
+            )
 
         if indicator_added:
             if self.indicator_prediction:
@@ -193,7 +205,8 @@ class HGFlow(nn.Module):
                 ### Indicator prediction
                 inputs = torch.cat([h, ind_skip], dim=-1)  # [bs, num_edges, model_dim + 1]
                 ind_delta = self.indicator_predictor(inputs) # [bs, num_edges, 1]
-                ind = ind_t + ind_delta
+                # ind = ind_t + ind_delta
+                ind = self.sigmoid(ind_delta)
 
                 ### Concatenate incidence and indicator predictions
                 im_t = torch.cat([inc, ind], dim=2)

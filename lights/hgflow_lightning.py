@@ -52,7 +52,7 @@ class HGFlowLightning(pl.LightningModule):
             self.sampler = euler_sampler
             self.loss = functools.partial(
                 metrics.LAP_loss,
-                loss_fn=torch.nn.functional.mse_loss,
+                # loss_fn=torch.nn.functional.mse_loss,
             )
         else:
             self.net = HGFlow(model_config, flow=False)
@@ -103,6 +103,7 @@ class HGFlowLightning(pl.LightningModule):
 
     def align_incidence_matrix(self, im_pred, im_true):
 
+        im_pred = torch.clamp(im_pred, 0, 1)
         loss, indices = self.loss(im_pred, im_true, return_indices=True)
         indices = torch.from_numpy(indices[:,1,...])
         indices = indices.unsqueeze(-1).expand(-1, -1, im_pred.shape[2])
