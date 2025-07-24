@@ -19,7 +19,7 @@ class HGFlow(nn.Module):
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
         self.indicator_prediction = self.config['indicator_prediction']
-        self.randomize_skip_prob = 0.25
+        self.randomize_skip_prob = 0.0
 
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
@@ -114,7 +114,8 @@ class HGFlow(nn.Module):
 
     def get_init_im(self, bs, num_edges, num_nodes, device):
         # im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
-        im_0 = 0.5 + 0.1*torch.randn(bs, num_edges, num_nodes, device=device)
+        # im_0 = 0.5 + 0.1*torch.randn(bs, num_edges, num_nodes, device=device)
+        im_0 = torch.rand(bs, num_edges, num_nodes, device=device)
         return im_0
 
 
