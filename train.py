@@ -123,7 +123,7 @@ checkpoint_callback = ModelCheckpoint(
 
 trainer = pl.Trainer(
     accelerator="cuda",
-    devices=1,
+    devices=[0],
     max_epochs=1000,
     check_val_every_n_epoch=1,
     logger=logger,

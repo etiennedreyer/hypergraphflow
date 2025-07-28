@@ -8,7 +8,7 @@ batch_size_val: 64
 num_epochs: 100
 num_workers: 0
 
-nray: 4
+nray: 0
 seed: 12345
 
 flow_match:

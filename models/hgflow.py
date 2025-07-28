@@ -110,6 +110,8 @@ class HGFlow(nn.Module):
                         activation=ind_pred_cfg['activation']
             )
 
+        self.embedding = nn.Embedding(self.num_edges, self.hidden_dim - self.config['num_node_features'])
+
         self.sigmoid = nn.Sigmoid()
 
     def get_init_im(self, bs, num_edges, num_nodes, device):
@@ -144,15 +146,20 @@ class HGFlow(nn.Module):
         #     ### normalize input incidence matrix
         #     im_t = self.sigmoid(im_t)
 
+        ### Hyperedge encoding (incidence-weighted sum of node vectors)
+        # h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
+        h = self.edge_mlp(torch.cat([
+                self.embedding.weight.unsqueeze(0).expand(bs, -1, -1),  # [bs, num_edges, model_dim - num_node_features]
+                torch.einsum('ben, bnf -> bef', im_t, n),
+            ], dim=-1)
+        )
+
         ### Node embedding
         n = self.node_embedder(n)  # [bs, num_nodes, model_dim]
 
         ### Node encoding (self-attention)
         for layer in self.node_encoder_layers:
             n = layer(n, key_padding_mask=node_mask)
-
-        ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
 
         ### Timestep embedding
         if t is not None:
