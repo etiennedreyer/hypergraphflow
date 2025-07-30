@@ -85,16 +85,17 @@ class AttentionLayer(nn.Module):
         assert self.c_dim is None or c is not None, \
             "context c must be provided if c_dim is not None!"
 
+        ### prenorm x and y for qkv projection
+        x_norm = self.norm1(x)
+        y_norm = self.norm1(y) if y is not None else None
+
         ### assumes x is of shape (batch_size, seq_len, model_dim)
-        q, k, v = self.get_qkv(x, y)
+        q, k, v = self.get_qkv(x_norm, y_norm)
 
         if not self.batch_first:
             q = q.permute(1, 0, 2)
             k = k.permute(1, 0, 2)
             v = v.permute(1, 0, 2)
-
-        ### prenorm query for mha
-        q_norm = self.norm1(q)
 
         if self.c_dim is not None:
             ### unpack parameters from context projection
@@ -106,36 +107,36 @@ class AttentionLayer(nn.Module):
                     scale2, shift2 = self.c_proj(c).unsqueeze(1).chunk(4, dim=-1)
 
             ### context modulation 1
-            q_norm = self.modulate(q_norm, scale1, shift1)
+            q = self.modulate(q, scale1, shift1)
 
         ### multi-head attention
-        attn = self.mha(q_norm, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
+        attn = self.mha(q, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
 
         if self.gated and self.c_dim is not None:
             ### gate attention
             attn = gate1 * attn
 
         ### residual + attention
-        q = q + attn
+        x = x + attn
 
-        ### prenorm query for ffn
-        q_norm = self.norm2(q)
+        ### prenorm x for ffn
+        x_norm = self.norm2(x)
 
         if self.c_dim is not None:
             ### context modulation 2
-            q_norm = self.modulate(q_norm, scale2, shift2)
+            x_norm = self.modulate(x_norm, scale2, shift2)
 
         ### feed forward
-        ffn_out = self.ffn(q_norm)
+        ffn_out = self.ffn(x_norm)
 
         if self.gated and self.c_dim is not None:
             ### gate ffn
             ffn_out = gate2 * ffn_out
 
         ### residual + ffn
-        q = q + ffn_out
+        x = x + ffn_out
 
-        return q
+        return x
     
 
 class SelfAttentionLayer(AttentionLayer):
@@ -169,6 +170,7 @@ class DecoderBlock(nn.Module):
         super().__init__()
         self.SA = SelfAttentionLayer(*args, **kwargs)
         self.CA = CrossAttentionLayer(*args, **kwargs)
+        self.num_heads = self.CA.num_heads
 
     def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None,
                 attn_mask_SA=None, attn_mask_CA=None):
@@ -199,17 +201,20 @@ class DualUpdateBlock(nn.Module):
         super().__init__()
         self.CA_a = CrossAttentionLayer(*args, **kwargs)
         self.CA_b = CrossAttentionLayer(*args, **kwargs)
+        self.num_heads = self.CA_a.num_heads
 
-    def forward(self, x_a, x_b, c=None, key_padding_mask=None):
+    def forward(self, x_a, x_b, c=None, key_padding_mask_a=None, key_padding_mask_b=None, attn_mask_a=None, attn_mask_b=None):
 
         ### First update
         # q: x_a
         # k/v: x_b
-        x_a = self.CA_a(x_a, x_b, c=c, key_padding_mask=key_padding_mask)
+        x_a = self.CA_a(x_a, x_b, c=c, key_padding_mask=key_padding_mask_b, 
+                        attn_mask=attn_mask_a)
 
         ### Second update
         # q: x_b
         # k/v: x_a
-        x_b = self.CA_b(x_b, x_a, c=c, key_padding_mask=key_padding_mask)
+        x_b = self.CA_b(x_b, x_a, c=c, key_padding_mask=key_padding_mask_a, 
+                        attn_mask=attn_mask_b)
 
         return x_a, x_b
