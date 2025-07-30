@@ -20,6 +20,7 @@ class HGFlow(nn.Module):
         self.timestep_embedding = self.config['timestep_embedding']
         self.indicator_prediction = self.config['indicator_prediction']
         self.randomize_skip_prob = 0.0
+        self.supervise_attn_mask = self.config.get('supervise_attn_mask', False)
 
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
@@ -57,60 +58,52 @@ class HGFlow(nn.Module):
             self.timestep_embedder = None
 
         ca_cfg = self.config['cross_attention']
+        self.ca_layer_type = ca_cfg['layer_type']
 
-        # self.cross_attention_layers = nn.ModuleList([
-        #                                 CrossAttentionLayer(
-        #                                     model_dim=ca_cfg['model_dim'],
-        #                                     num_heads=ca_cfg['num_heads'],
-        #                                     activation=ca_cfg['activation'],
-        #                                     c_dim=ca_cfg['model_dim'] \
-        #                                         if self.timestep_embedding else None,
-        #                                     gated=ca_cfg['gated'],
-        #                                 )
-        #                                 for _ in range(ca_cfg['num_layers'])
-        #                             ])
+        if self.ca_layer_type == 'dual':
 
-        # self.cross_attention_layers = nn.ModuleList([
-        #                                 DualUpdateBlock(
-        #                                     model_dim=ca_cfg['model_dim'],
-        #                                     num_heads=ca_cfg['num_heads'],
-        #                                     activation=ca_cfg['activation'],
-        #                                     c_dim=ca_cfg['model_dim'] \
-        #                                         if self.timestep_embedding else None,
-        #                                     gated=ca_cfg['gated'],
-        #                                 )
-        #                                 for _ in range(ca_cfg['num_layers'])
-        #                             ])
+            self.ca_layers = nn.ModuleList([
+                DualUpdateBlock(
+                    model_dim=ca_cfg['model_dim'],
+                    num_heads=ca_cfg['num_heads'],
+                    activation=ca_cfg['activation'],
+                    c_dim=ca_cfg['model_dim'] \
+                        if self.timestep_embedding else None,
+                    gated=ca_cfg['gated'],
+                )
+                for _ in range(ca_cfg['num_layers'])
+            ])
+            
+        elif self.ca_layer_type == 'decoder':
 
-        self.decoder_layers = nn.ModuleList([
-            DecoderBlock(
-                model_dim=ca_cfg['model_dim'],
-                num_heads=ca_cfg['num_heads'],
-                activation=ca_cfg['activation'],
-                c_dim=ca_cfg['model_dim'] if self.timestep_embedding else None,
-                gated=ca_cfg['gated'],
-            )
-            for _ in range(ca_cfg['num_layers'])
-        ])
+            self.ca_layers = nn.ModuleList([
+                DecoderBlock(
+                    model_dim=ca_cfg['model_dim'],
+                    num_heads=ca_cfg['num_heads'],
+                    activation=ca_cfg['activation'],
+                    c_dim=ca_cfg['model_dim'] if self.timestep_embedding else None,
+                    gated=ca_cfg['gated'],
+                )
+                for _ in range(ca_cfg['num_layers'])
+            ])
 
-        inc_pred_cfg = self.config['incidence_predictor']
-        # self.incidence_predictor = MLP(
-        #             input_dim=2*inc_pred_cfg['input_dim'] + 1,
-        #             layers=inc_pred_cfg['layers'],
-        #             output_dim=inc_pred_cfg['output_dim'],
-        #             activation=inc_pred_cfg['activation']
-        # )
+        else:
+            raise ValueError(f"Unknown cross attention layer type: {self.ca_layer_type}")
 
         if self.indicator_prediction:
             ind_pred_cfg = self.config['indicator_predictor']
             self.indicator_predictor = MLP(
-                        input_dim=ind_pred_cfg['input_dim'] + 1,
+                        input_dim=ind_pred_cfg['input_dim'],
                         layers=ind_pred_cfg['layers'],
                         output_dim=ind_pred_cfg['output_dim'],
                         activation=ind_pred_cfg['activation']
             )
 
         self.embedding = nn.Embedding(self.num_edges, self.hidden_dim - self.config['num_node_features'])
+
+        if self.supervise_attn_mask:
+            self.n_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
+            self.h_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         self.sigmoid = nn.Sigmoid()
 
@@ -142,12 +135,7 @@ class HGFlow(nn.Module):
         ### key_padding_mask
         node_mask = torch.isnan(n).any(dim=-1)
 
-        # if self.flow:
-        #     ### normalize input incidence matrix
-        #     im_t = self.sigmoid(im_t)
-
         ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        # h = self.edge_mlp(torch.einsum('ben, bnd -> bed', im_t, n))
         h = self.edge_mlp(torch.cat([
                 self.embedding.weight.unsqueeze(0).expand(bs, -1, -1),  # [bs, num_edges, model_dim - num_node_features]
                 torch.einsum('ben, bnf -> bef', im_t, n),
@@ -171,37 +159,38 @@ class HGFlow(nn.Module):
         ### Node update (cross-attention)
         # q: hyperedge features
         # k/v: node features
-        attn_mask_CA = (im_t < 0.5).repeat(self.decoder_layers[0].CA.num_heads, 1, 1)
-        for layer in self.decoder_layers:
-            # n, h = layer(n, h, c=t)
-            h = layer(h, n, c=t) #, attn_mask_CA=attn_mask_CA) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+        masks = []
+        # for layer in self.decoder_layers:
+        for layer in self.ca_layers:
+            if self.supervise_attn_mask:
+                h_proj = self.h_proj(h)  # [bs, num_edges, model_dim]
+                n_proj = self.n_proj(n)  # [bs, num_nodes, model_dim
+                mask = self.sigmoid((h_proj @ torch.transpose(n_proj, 1, 2)))
+                masks.append(mask)  # [bs, num_edges, num_nodes]
+                mask = mask.detach()
+                mask = (mask < 0.1) # [bs, num_edges, num_nodes]
+                zero_rows = mask.all(dim=-1)
+                if zero_rows.any():
+                    mask[zero_rows] = False  # ensure at least one node per hyperedge
+                
+                mask = mask.repeat(self.ca_layers[0].num_heads, 1, 1)  # [bs*num_heads, num_edges, num_nodes]
 
-        ### Random skip mask
-        if self.training and self.randomize_skip_prob > 0:
-            random_mask = torch.rand(bs, device=im_t.device) < self.randomize_skip_prob
-            im_skip = im_t * random_mask.view(bs, 1, 1)
-            ind_skip = ind_t * random_mask.view(bs, 1, 1) if indicator_added else None
-        else:
-            im_skip = im_t
-            ind_skip = ind_t if indicator_added else None
+            else:
+                mask = None
 
-        ### Incidence prediction (matrix-wise)
-        # input shape: (bs, num_edges, num_nodes, model_dim)
-        # output shape: (bs, num_edges, num_nodes)
-        '''
-        inputs = torch.cat([
-            torch.repeat_interleave(n.unsqueeze(1), num_edges, dim=1), 
-            torch.repeat_interleave(h.unsqueeze(2), num_nodes, dim=2),
-            im_skip.unsqueeze(-1)
-        ], dim=-1)
-        inc_delta = self.incidence_predictor(inputs).squeeze(-1) # [bs, num_edges, num_nodes]
-        inc = im_t + inc_delta
-        '''
+            if self.ca_layer_type == 'dual':         
+                mask_a = torch.transpose(mask, 1, 2) if mask is not None else None
+
+                if self.supervise_attn_mask:
+                    zero_rows = mask_a.all(dim=-1)
+                    if zero_rows.any():
+                        mask_a[zero_rows] = False  # ensure at least one hyperedge per node
+
+                n, h = layer(n, h, c=t, attn_mask_a=mask_a, attn_mask_b=mask)
+            else:
+                h = layer(h, n, c=t, attn_mask_CA=mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+
         ### dot-product approach:
-        # n.shape = torch.Size([64, 30, 36])
-        # h.shape = torch.Size([64, 42, 36])
-        # inc = torch.nn.functional.softmax(h @ torch.transpose(n, 1, 2), dim=-1)
-
         inc = self.sigmoid(
                 (h @ torch.transpose(n, 1, 2)) #/
                     # torch.sqrt(torch.tensor(self.hidden_dim, device=im_t.device)),
@@ -209,22 +198,17 @@ class HGFlow(nn.Module):
 
         if indicator_added:
             if self.indicator_prediction:
-
-                ### Indicator prediction
-                inputs = torch.cat([h, ind_skip], dim=-1)  # [bs, num_edges, model_dim + 1]
-                ind_delta = self.indicator_predictor(inputs) # [bs, num_edges, 1]
-                # ind = ind_t + ind_delta
-                ind = self.sigmoid(ind_delta)
-
-                ### Concatenate incidence and indicator predictions
-                im_t = torch.cat([inc, ind], dim=2)
-                # im_t = torch.cat([inc + im_t, ind + ind_t], dim=2)
-
+                ind = self.sigmoid(self.indicator_predictor(h)) # [bs, num_edges, 1]
             else:
-                im_t = torch.cat([inc, ind_t], dim=2)
+                ind = ind_t
+            
+            ### Concatenate incidence and indicator predictions
+            im_t = torch.cat([inc, ind], dim=2)
 
-        # if not self.flow:
-        ### normalize output incidence matrix
-        # im_t = self.sigmoid(im_t)
+            for i in range(len(masks)):
+                masks[i] = torch.cat([masks[i], ind], dim=2)
+
+        if self.supervise_attn_mask and self.training:
+            return im_t, masks
 
         return im_t

@@ -59,6 +59,9 @@ class HGFlowLightning(pl.LightningModule):
             self.FM = None
             self.loss = metrics.LAP_loss
 
+        if self.net.supervise_attn_mask:
+            self.name = self.name.replace("transformer", "maskformer")
+
     def get_FM(self):
 
         from flow_matching.path import AffineProbPath
@@ -130,12 +133,20 @@ class HGFlowLightning(pl.LightningModule):
             t, im_t  = self.sample_location_and_conditional_flow(transform_im(im_truth, forward=True))
             im_t = torch.clamp(transform_im(im_t, forward=False), 0, 1)
             pred = self.net(im_t, t, n)
-            loss = self.loss(pred, im_truth).mean()
+            masks = None
+            if self.net.supervise_attn_mask:
+                pred, masks = pred
+            loss = self.loss(pred, im_truth, masks=masks).mean()
+
             self.log("loss/train", loss)
 
         else:
             pred = self.net(im_0, t=None, n=n)
-            loss = self.loss(pred, im_truth).mean()
+            masks = None
+            if self.net.supervise_attn_mask:
+                pred, masks = pred
+
+            loss = self.loss(pred, im_truth, masks=masks).mean()
 
             with torch.no_grad():
                 logs = {
