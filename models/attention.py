@@ -89,14 +89,6 @@ class AttentionLayer(nn.Module):
         x_norm = self.norm1(x)
         y_norm = self.norm1(y) if y is not None else None
 
-        ### assumes x is of shape (batch_size, seq_len, model_dim)
-        q, k, v = self.get_qkv(x_norm, y_norm)
-
-        if not self.batch_first:
-            q = q.permute(1, 0, 2)
-            k = k.permute(1, 0, 2)
-            v = v.permute(1, 0, 2)
-
         if self.c_dim is not None:
             ### unpack parameters from context projection
             if self.gated:
@@ -107,7 +99,15 @@ class AttentionLayer(nn.Module):
                     scale2, shift2 = self.c_proj(c).unsqueeze(1).chunk(4, dim=-1)
 
             ### context modulation 1
-            q = self.modulate(q, scale1, shift1)
+            x_norm = self.modulate(x_norm, scale1, shift1)
+
+        ### assumes x is of shape (batch_size, seq_len, model_dim)
+        q, k, v = self.get_qkv(x_norm, y_norm)
+
+        if not self.batch_first:
+            q = q.permute(1, 0, 2)
+            k = k.permute(1, 0, 2)
+            v = v.permute(1, 0, 2)
 
         ### multi-head attention
         attn = self.mha(q, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
