@@ -136,6 +136,7 @@ class HGFlowLightning(pl.LightningModule):
             masks = None
             if self.net.supervise_attn_mask:
                 pred, masks = pred
+            
             loss = self.loss(pred, im_truth, masks=masks).mean()
 
             self.log("loss/train", loss)

@@ -4,6 +4,7 @@ import yaml
 from models.attention import SelfAttentionLayer, CrossAttentionLayer, DualUpdateBlock, DecoderBlock
 from models.time import TimestepEmbedder
 from models.mlp import MLP
+import math
 
 class HGFlow(nn.Module):
 
@@ -37,20 +38,25 @@ class HGFlow(nn.Module):
                                         num_heads=enc_cfg['num_heads'],
                                         activation=enc_cfg['activation'],
                                         gated=enc_cfg['gated'],
+                                        ffn_factor=enc_cfg['ffn_factor'],
                                     )
                                     for _ in range(enc_cfg['num_layers'])
                                 ])
 
-        edge_mlp_cfg = self.config['edge_mlp']
-        self.edge_mlp = nn.Sequential(
-            MLP(
-                input_dim=edge_mlp_cfg['input_dim'],
-                layers=edge_mlp_cfg['layers'],
-                output_dim= edge_mlp_cfg['output_dim'],
-                activation='relu'
-            ),
-            nn.LayerNorm(edge_mlp_cfg['output_dim']),
-        )
+        edge_mlp_cfg = self.config.get('edge_mlp', None)
+
+        if edge_mlp_cfg is not None:
+            self.edge_mlp = nn.Sequential(
+                MLP(
+                    input_dim=edge_mlp_cfg['input_dim'],
+                    layers=edge_mlp_cfg['layers'],
+                    output_dim= edge_mlp_cfg['output_dim'],
+                    activation='relu'
+                ),
+                nn.LayerNorm(edge_mlp_cfg['output_dim']),
+            )
+        else:
+            self.edge_mlp = None
 
         if self.timestep_embedding:
             self.timestep_embedder = TimestepEmbedder(self.hidden_dim)
@@ -70,6 +76,7 @@ class HGFlow(nn.Module):
                     c_dim=ca_cfg['model_dim'] \
                         if self.timestep_embedding else None,
                     gated=ca_cfg['gated'],
+                    ffn_factor=ca_cfg['ffn_factor'],
                 )
                 for _ in range(ca_cfg['num_layers'])
             ])
@@ -83,6 +90,7 @@ class HGFlow(nn.Module):
                     activation=ca_cfg['activation'],
                     c_dim=ca_cfg['model_dim'] if self.timestep_embedding else None,
                     gated=ca_cfg['gated'],
+                    ffn_factor=ca_cfg['ffn_factor'],
                 )
                 for _ in range(ca_cfg['num_layers'])
             ])
@@ -99,7 +107,7 @@ class HGFlow(nn.Module):
                         activation=ind_pred_cfg['activation']
             )
 
-        self.embedding = nn.Embedding(self.num_edges, self.hidden_dim - self.config['num_node_features'])
+        self.embedding = nn.Embedding(self.num_edges, self.hidden_dim) # - self.config['num_node_features'])
 
         if self.supervise_attn_mask:
             self.n_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
@@ -136,11 +144,14 @@ class HGFlow(nn.Module):
         node_mask = torch.isnan(n).any(dim=-1)
 
         ### Hyperedge encoding (incidence-weighted sum of node vectors)
-        h = self.edge_mlp(torch.cat([
-                self.embedding.weight.unsqueeze(0).expand(bs, -1, -1),  # [bs, num_edges, model_dim - num_node_features]
-                torch.einsum('ben, bnf -> bef', im_t, n),
-            ], dim=-1)
-        )
+        if self.edge_mlp is not None:
+            h = self.edge_mlp(torch.cat([
+                    self.embedding.weight.unsqueeze(0).expand(bs, -1, -1),
+                    torch.einsum('ben, bnf -> bef', im_t, n),
+                ], dim=-1)
+            )
+        else:
+            h = self.embedding(torch.arange(num_edges, device=im_t.device).unsqueeze(0).expand(bs, -1))
 
         ### Node embedding
         n = self.node_embedder(n)  # [bs, num_nodes, model_dim]
@@ -163,12 +174,12 @@ class HGFlow(nn.Module):
         # for layer in self.decoder_layers:
         for layer in self.ca_layers:
             if self.supervise_attn_mask:
-                h_proj = self.h_proj(h)  # [bs, num_edges, model_dim]
-                n_proj = self.n_proj(n)  # [bs, num_nodes, model_dim
-                mask = self.sigmoid((h_proj @ torch.transpose(n_proj, 1, 2)))
-                masks.append(mask)  # [bs, num_edges, num_nodes]
+                h_proj = self.h_proj(h)
+                n_proj = self.n_proj(n)
+                mask = self.sigmoid((h_proj @ torch.transpose(n_proj, 1, 2)) / math.sqrt(self.hidden_dim))
+                masks.append(mask)
                 mask = mask.detach()
-                mask = (mask < 0.1) # [bs, num_edges, num_nodes]
+                mask = (mask < 0.1)
                 zero_rows = mask.all(dim=-1)
                 if zero_rows.any():
                     mask[zero_rows] = False  # ensure at least one node per hyperedge
@@ -176,7 +187,9 @@ class HGFlow(nn.Module):
                 mask = mask.repeat(self.ca_layers[0].num_heads, 1, 1)  # [bs*num_heads, num_edges, num_nodes]
 
             else:
-                mask = None
+                # mask = None
+                # mask = im_t.repeat(self.ca_layers[0].num_heads, 1, 1)  # HACK! adding im_t to attention
+                mask = torch.cat([im_t, torch.zeros_like(im_t).repeat(self.ca_layers[0].num_heads - 1, 1, 1)], dim=0) # only apply to first head
 
             if self.ca_layer_type == 'dual':         
                 mask_a = torch.transpose(mask, 1, 2) if mask is not None else None
@@ -192,8 +205,7 @@ class HGFlow(nn.Module):
 
         ### dot-product approach:
         inc = self.sigmoid(
-                (h @ torch.transpose(n, 1, 2)) #/
-                    # torch.sqrt(torch.tensor(self.hidden_dim, device=im_t.device)),
+                (h @ torch.transpose(n, 1, 2)) / math.sqrt(self.hidden_dim)
             )
 
         if indicator_added:

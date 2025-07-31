@@ -2,13 +2,12 @@
 num_node_features: &F 3
 num_nodes: &N 30
 num_edges: &K 42
-hidden_dim: &H 24
+hidden_dim: &H 36
 
 
 ### hyperparameters
-# timestep_embedding: true
-timestep_embedding: false
 indicator_prediction: true
+timestep_embedding: true
 supervise_attn_mask: false
 
 node_embedder:
@@ -23,6 +22,7 @@ node_encoder:
     num_layers: 3
     gated: false
     activation: "silu"
+    ffn_factor: 2
 
 cross_attention:
     layer_type: "decoder" # "decoder" or "dual"
@@ -31,12 +31,13 @@ cross_attention:
     num_layers: 5
     gated: false
     activation: "silu"
+    ffn_factor: 2
 
-edge_mlp:
-    input_dim: *H
-    layers: [128, 128]
-    output_dim: *H
-    activation: "relu"
+# edge_mlp:
+#     input_dim: *H
+#     layers: [128]
+#     output_dim: *H
+#     activation: "relu"
 
 incidence_predictor:
     input_dim: *H

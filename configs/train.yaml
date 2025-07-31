@@ -1,5 +1,5 @@
-# name: 'cfm'
-name: 'transformer'
+name: 'cfm'
+# name: 'transformer'
 # name : 'refiner'
 
 learning_rate: 1.0e-3
@@ -11,8 +11,8 @@ num_workers: 0
 nray: 0
 seed: 12345
 
-# flow_match:
-#   sigma: 0
+flow_match:
+  sigma: 0
 
 sampler:
   solver: 'dopri5'

@@ -12,6 +12,7 @@ class AttentionLayer(nn.Module):
         batch_first=True,
         activation="silu",
         gated=False,
+        ffn_factor=2,
     ):
         super().__init__()
 
@@ -50,7 +51,7 @@ class AttentionLayer(nn.Module):
         ### Feed forward network
         self.ffn = MLP(
                     model_dim, 
-                    [model_dim * 2], 
+                    [model_dim * ffn_factor],
                     model_dim,
                     activation=activation
                 )
