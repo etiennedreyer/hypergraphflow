@@ -1,0 +1,109 @@
+import yaml
+import sys
+import torch
+sys.path.append("../recurrently_predicting_hypergraphs/")
+
+def pad(x, until, val=float('nan')):
+
+    delta = until - x.size(0)
+    if delta > 0:
+        x = torch.cat([x, torch.full((delta, x.size(1)), val)], dim=0)
+    elif delta < 0:
+        raise ValueError("pad until is smaller than the number of points!")
+    return x
+
+
+class HyperGraphDataset:
+
+    def __init__(self, config, total_size):
+
+        if type(config) is str:
+            with open(config, 'r') as f:
+                config = yaml.safe_load(f)
+
+        self.config = config
+        self.name = config['name']
+        self.add_indicator = config.get('add_indicator', True)
+        self.collate_fn = None
+        self.sampler = None
+        self.pad = True
+        self.total_size = total_size
+
+        ### Convex Hull
+        if 'convex_hull' in self.name:
+            from convex_hull_dataset import ConvexHullData
+
+            self.dataset = ConvexHullData(
+                n_range=torch.arange(config['N'][0], config['N'][1]),
+                dim=config['D'],
+                unit_norm=config.get('norm'),
+                length=total_size
+            )
+            self.max_nodes = max(self.dataset.n_points)
+            self.max_edges = self.dataset.max_facets
+
+            self.name += "_spherical" if config['norm'] else "_normal"
+            self.name += f"_{config['D']}D"
+            self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
+            self.in_feats = config['D']
+
+            ### overwrite max cardinality
+            if 'num_edges' in config:
+                self.max_edges = config['max_edges']
+            if 'num_nodes' in config:
+                self.max_nodes = config['max_nodes']
+
+        else:
+            raise NotImplementedError(f"Dataset {self.name} unimplemented.")
+
+    def get_sampler(self):
+
+        if 'convex_hull' in self.name:
+            from convex_hull_dataset import BucketSampler
+
+            self.sampler = BucketSampler(self.dataset, self.batch_size, 
+                                    self.dataset.n_points, 
+                                    shuffle=self.shuffle)
+
+    def get_collate_fn(self):
+
+        if 'convex_hull' in self.name:
+            from convex_hull_dataset import get_collate_fn
+            self.collate_fn = get_collate_fn(self.max_edges, 
+                                                add_indicator=self.add_indicator)
+
+        if self.pad:
+            base_collate_fn = self.collate_fn
+            def padded_collate_fn(batch):
+                pad_until = max(p.size(0) for p, _ in batch)
+                padded_batch = []
+                for p, i in batch:
+                    p = pad(p, pad_until)
+                    # i gets padded in the original collate function
+                    padded_batch.append((p, i))
+                return base_collate_fn(padded_batch)
+
+            self.collate_fn = padded_collate_fn
+        
+    def get_dataloader(self, dl_config, model_name):
+
+        self.shuffle = dl_config.get('shuffle', True)
+        self.batch_size = dl_config['batch_size']
+        ### 1) Get sampler (for refiner only)
+        if 'refiner' in model_name:
+            self.pad = False
+            if self.batch_size > 1:
+                self.get_sampler()
+                self.batch_size = 1
+
+        ### 2) Get collate function
+        self.get_collate_fn()
+
+        return torch.utils.data.DataLoader(
+            self.dataset,
+            shuffle=self.shuffle if not self.sampler else False,
+            batch_size=self.batch_size,
+            batch_sampler=self.sampler,
+            collate_fn=self.collate_fn,
+            num_workers=self.config.get('num_workers', 0)
+        )

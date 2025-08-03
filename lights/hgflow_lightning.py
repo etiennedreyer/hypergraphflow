@@ -3,7 +3,7 @@ import torch
 import pytorch_lightning as pl
 from models.hgflow import HGFlow
 from utils.sampler import euler_sampler
-import functools
+# import functools
 
 import sys
 sys.path.append("../../recurrently_predicting_hypergraphs/")
@@ -42,25 +42,24 @@ class VelocityModelFromX1Model(ModelWrapper):
 class HGFlowLightning(pl.LightningModule):
     def __init__(self, model_config, train_config):
         super().__init__()
-        with open(train_config, 'r') as f:
-            self.config = yaml.safe_load(f)
-        self.name = self.config['name']
+        if type(train_config) is str:
+            with open(train_config, 'r') as f:
+                self.config = yaml.safe_load(f)
+        else:
+            self.config = train_config
+        self.loss = metrics.LAP_loss
+        self.net = HGFlow(model_config)
+        self.name = self.net.name
         
-        if 'flow_match' in self.config:
-            self.net = HGFlow(model_config, flow=True)
+        if self.net.flow:
             self.FM = self.get_FM()
             self.sampler = euler_sampler
-            self.loss = functools.partial(
-                metrics.LAP_loss,
-                # loss_fn=torch.nn.functional.mse_loss,
-            )
         else:
-            self.net = HGFlow(model_config, flow=False)
             self.FM = None
-            self.loss = metrics.LAP_loss
+            self.name = 'transformer'
 
         if self.net.supervise_attn_mask:
-            self.name = self.name.replace("transformer", "maskformer")
+            self.name += "_masked"
 
     def get_FM(self):
 

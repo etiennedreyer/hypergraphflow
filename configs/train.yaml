@@ -1,19 +1,22 @@
-name: 'cfm'
-# name: 'transformer'
-# name : 'refiner'
+model: refiner
+dataset: convex_hull
 
+# learning_rate: 3.0e-4
 learning_rate: 1.0e-3
-batch_size_train: 64
-batch_size_val: 64
-num_epochs: 100
-num_workers: 0
-
+num_epochs: 1000
+num_workers: 10
 nray: 0
-seed: 12345
+seed: 123456
+accelerator: 'cuda'
+devices: [0]
 
-flow_match:
-  sigma: 0
+dl_train:
+  total_size: 20000
+  batch_size: 64
+  shuffle: true
+  sampler:
 
-sampler:
-  solver: 'dopri5'
-  steps: 25
+dl_val:
+  total_size: 2000
+  batch_size: 64
+  shuffle: false

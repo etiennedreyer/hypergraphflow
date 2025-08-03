@@ -14,11 +14,13 @@ class IRModel(pl.LightningModule):
     def __init__(self, model_config, train_config):
         super().__init__()
 
-        with open(model_config, 'r') as f:
-            model_config = yaml.safe_load(f)
+        if type(model_config) is str:
+            with open(model_config, 'r') as f:
+                model_config = yaml.safe_load(f)
 
-        with open(train_config, 'r') as f:
-            train_config = yaml.safe_load(f)
+        if type(train_config) is str:
+            with open(train_config, 'r') as f:
+                train_config = yaml.safe_load(f)
 
         self.config = {**model_config, **train_config}
 

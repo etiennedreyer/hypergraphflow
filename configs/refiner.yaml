@@ -1,3 +1,5 @@
+name: refiner
+
 ### dimensions
 num_node_features: &F 3
 num_edges: &K 42

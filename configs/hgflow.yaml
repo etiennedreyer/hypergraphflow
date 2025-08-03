@@ -1,9 +1,9 @@
+name: hgflow
+
 ### dimensions
 num_node_features: &F 3
-num_nodes: &N 30
 num_edges: &K 42
 hidden_dim: &H 36
-
 
 ### hyperparameters
 indicator_prediction: true
@@ -14,40 +14,31 @@ node_embedder:
     input_dim: *F
     layers: []
     output_dim: *H
-    activation: "relu"
+    activation: relu
 
 node_encoder:
     model_dim: *H
     num_heads: 3
     num_layers: 3
     gated: false
-    activation: "silu"
+    activation: silu
     ffn_factor: 2
 
 cross_attention:
-    layer_type: "decoder" # "decoder" or "dual"
+    layer_type: decoder # decoder or dual
     model_dim: *H
     num_heads: 3
     num_layers: 5
     gated: false
-    activation: "silu"
+    activation: silu
     ffn_factor: 2
-
-# edge_mlp:
-#     input_dim: *H
-#     layers: [128]
-#     output_dim: *H
-#     activation: "relu"
-
-incidence_predictor:
-    input_dim: *H
-    # layers: [64, 32, 16]
-    layers: [32, 16]
-    output_dim: 1
-    activation: "relu"
 
 indicator_predictor:
     input_dim: *H
     layers: [32, 16]
     output_dim: 1
-    activation: "relu"
+    activation: relu
+
+flow_match:
+    solver: euler
+    steps: 25

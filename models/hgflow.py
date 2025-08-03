@@ -8,14 +8,17 @@ import math
 
 class HGFlow(nn.Module):
 
-    def __init__(self, config, flow=True):
+    def __init__(self, config):
         super().__init__()
 
-        with open(config, 'r') as f:
-            self.config = yaml.safe_load(f)
+        if type(config) is str:
+            with open(config, 'r') as f:
+                self.config = yaml.safe_load(f)
+        else:
+            self.config = config
 
-        self.flow = flow
-        self.num_nodes = self.config['num_nodes']
+        self.flow = ('flow_match' in self.config)
+        self.name = self.config['name']
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
@@ -107,7 +110,7 @@ class HGFlow(nn.Module):
                         activation=ind_pred_cfg['activation']
             )
 
-        self.embedding = nn.Embedding(self.num_edges, self.hidden_dim) # - self.config['num_node_features'])
+        self.embedding = nn.Embedding(self.num_edges, self.hidden_dim)
 
         if self.supervise_attn_mask:
             self.n_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
@@ -126,19 +129,12 @@ class HGFlow(nn.Module):
 
         im_t = x
 
+        indicator_added = True
         bs, num_edges, num_nodes = im_t.shape
 
-        if num_nodes == self.num_nodes + 1:
-            indicator_added = True
-            ind_t = im_t[:, :, -1:]  # indicator
-            im_t  = im_t[:, :, :-1]  # incidence
-            num_nodes -= 1
-        else:
-            indicator_added = False
-            ind_t = None
-
-        assert num_nodes == self.num_nodes, f"num_nodes {num_nodes} != {self.num_nodes}"
-        assert num_edges == self.num_edges, f"num_edges {num_edges} != {self.num_edges}"
+        ind_t = im_t[:, :, -1:]  # indicator
+        im_t  = im_t[:, :, :-1]  # incidence
+        num_nodes -= 1
 
         ### key_padding_mask
         node_mask = torch.isnan(n).any(dim=-1)
@@ -201,24 +197,23 @@ class HGFlow(nn.Module):
 
                 n, h = layer(n, h, c=t, attn_mask_a=mask_a, attn_mask_b=mask)
             else:
-                h = layer(h, n, c=t, attn_mask_CA=mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+                h = layer(h, n, c=t, attn_mask_CA=mask, key_padding_mask_CA=node_mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
 
         ### dot-product approach:
         inc = self.sigmoid(
                 (h @ torch.transpose(n, 1, 2)) / math.sqrt(self.hidden_dim)
             )
 
-        if indicator_added:
-            if self.indicator_prediction:
-                ind = self.sigmoid(self.indicator_predictor(h)) # [bs, num_edges, 1]
-            else:
-                ind = ind_t
-            
-            ### Concatenate incidence and indicator predictions
-            im_t = torch.cat([inc, ind], dim=2)
+        if self.indicator_prediction:
+            ind = self.sigmoid(self.indicator_predictor(h)) # [bs, num_edges, 1]
+        else:
+            ind = ind_t
+        
+        ### Concatenate incidence and indicator predictions
+        im_t = torch.cat([inc, ind], dim=2)
 
-            for i in range(len(masks)):
-                masks[i] = torch.cat([masks[i], ind], dim=2)
+        for i in range(len(masks)):
+            masks[i] = torch.cat([masks[i], ind], dim=2)
 
         if self.supervise_attn_mask and self.training:
             return im_t, masks
