@@ -81,11 +81,12 @@ def get_trainer(config, model_name, project_name):
 
     ### Log config
     config_artifact = wandb.Artifact("config", type="config")
-    with open("temp_config.yaml", 'w') as f:
+    temp_config_path = f"config_{run.id}.yaml"
+    with open(temp_config_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
-    config_artifact.add_file("temp_config.yaml")
+    config_artifact.add_file(temp_config_path, name="config.yaml")
     run.log_artifact(config_artifact)
-    os.remove("temp_config.yaml")
+    os.remove(temp_config_path)
 
     ### Log code
     run.log_code(".")
