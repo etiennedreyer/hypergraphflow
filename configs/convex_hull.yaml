@@ -1,4 +1,6 @@
 name: 'convex_hull'
 D: 3
 N: [30, 31]
+# N: [50, 51]
+# N: [20, 101]
 norm: false

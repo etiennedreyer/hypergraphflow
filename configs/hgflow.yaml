@@ -9,6 +9,7 @@ hidden_dim: &H 36
 indicator_prediction: true
 timestep_embedding: true
 supervise_attn_mask: false
+use_im_attn_mask: true
 
 node_embedder:
     input_dim: *F # this gets overwritten in hgflow.py

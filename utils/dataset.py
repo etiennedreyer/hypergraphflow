@@ -1,17 +1,8 @@
 import yaml
 import sys
 import torch
+import torch.nn.functional as F
 sys.path.append("../recurrently_predicting_hypergraphs/")
-
-def pad(x, until, val=float('nan')):
-
-    delta = until - x.size(0)
-    if delta > 0:
-        x = torch.cat([x, torch.full((delta, x.size(1)), val)], dim=0)
-    elif delta < 0:
-        raise ValueError("pad until is smaller than the number of points!")
-    return x
-
 
 class HyperGraphDataset:
 
@@ -90,8 +81,8 @@ class HyperGraphDataset:
                 pad_until = max(p.size(0) for p, _ in batch)
                 padded_batch = []
                 for p, i in batch:
-                    p = pad(p, pad_until)
-                    # i gets padded in the original collate function
+                    p = F.pad(p, (0, 0, 0, pad_until - p.size(0)), value=torch.nan)
+                    i = F.pad(i, (0, pad_until - i.size(1)), value=0)
                     padded_batch.append((p, i))
                 return base_collate_fn(padded_batch)
 

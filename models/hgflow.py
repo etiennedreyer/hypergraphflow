@@ -26,6 +26,9 @@ class HGFlow(nn.Module):
         self.indicator_prediction = self.config['indicator_prediction']
         self.randomize_skip_prob = 0.0
         self.supervise_attn_mask = self.config.get('supervise_attn_mask', False)
+        self.use_im_attn_mask = self.config.get('use_im_attn_mask', True)
+        if self.use_im_attn_mask and self.supervise_attn_mask:
+            raise NotImplementedError("Can't yet do both mask options simultaneously")
 
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
@@ -139,6 +142,8 @@ class HGFlow(nn.Module):
 
         ### key_padding_mask
         node_mask = torch.isnan(n).any(dim=-1)
+        if node_mask.any():
+            n = torch.nan_to_num(n, nan=0.0)
 
         ### Hyperedge encoding (incidence-weighted sum of node vectors)
         if self.edge_mlp is not None:
@@ -164,6 +169,21 @@ class HGFlow(nn.Module):
             t = self.timestep_embedder(t) \
                 if self.timestep_embedding else None
         
+        ### Incidence matrix attention mask
+        if self.use_im_attn_mask:
+            mask = torch.cat([im_t, torch.zeros_like(im_t).repeat(self.ca_layers[0].num_heads - 1, 1, 1)], dim=0) # only apply to first head
+
+            # since you can't use both float attn mask and bool key_padding mask,
+            # we need to create an additive version of the node mask using -infty
+            if node_mask.any():
+                additive_node_mask = torch.zeros_like(node_mask, dtype=torch.float)
+                additive_node_mask.masked_fill_(node_mask, torch.tensor(float('-inf')))
+                additive_node_mask = additive_node_mask.repeat(self.ca_layers[0].num_heads, 1).unsqueeze(1)  # [bs*num_heads, 1, num_nodes]
+                mask = mask + additive_node_mask # broadcast to [bs*num_heads, num_edges, num_nodes]
+
+        else:
+            mask = None
+
         ### Node update (cross-attention)
         # q: hyperedge features
         # k/v: node features
@@ -183,11 +203,6 @@ class HGFlow(nn.Module):
                 
                 mask = mask.repeat(self.ca_layers[0].num_heads, 1, 1)  # [bs*num_heads, num_edges, num_nodes]
 
-            else:
-                # mask = None
-                # mask = im_t.repeat(self.ca_layers[0].num_heads, 1, 1)  # HACK! adding im_t to attention
-                mask = torch.cat([im_t, torch.zeros_like(im_t).repeat(self.ca_layers[0].num_heads - 1, 1, 1)], dim=0) # only apply to first head
-
             if self.ca_layer_type == 'dual':
                 mask_a = torch.transpose(mask, 1, 2) if mask is not None else None
 
@@ -195,10 +210,14 @@ class HGFlow(nn.Module):
                     zero_rows = mask_a.all(dim=-1)
                     if zero_rows.any():
                         mask_a[zero_rows] = False  # ensure at least one hyperedge per node
+                elif self.use_im_attn_mask:
+                    raise NotImplementedError("Can't use both im_attn_mask with dual update block yet")
 
                 n, h = layer(n, h, c=t, attn_mask_a=mask_a, attn_mask_b=mask)
             else:
-                h = layer(h, n, c=t, attn_mask_CA=mask) #, key_padding_mask_CA=node_mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+                h = layer(h, n, c=t, attn_mask_CA=mask, 
+                                     key_padding_mask_CA=node_mask if not self.use_im_attn_mask else None) 
+                #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))
 
         ### dot-product approach:
         inc = self.sigmoid(
