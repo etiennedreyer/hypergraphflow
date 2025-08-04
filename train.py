@@ -125,9 +125,13 @@ def train():
 
     ### Dataset
     ds_train = HyperGraphDataset(config['dataset'], config['dl_train']['total_size'])
-    config['dataset']['num_edges'] = ds_train.max_edges
-    config['dataset']['num_nodes'] = ds_train.max_nodes
     ds_val   = HyperGraphDataset(config['dataset'], config['dl_val']['total_size'])
+
+    max_edges = max(ds_train.max_edges, ds_val.max_edges)
+    max_nodes = max(ds_train.max_nodes, ds_val.max_nodes)
+    ds_train.max_edges = max_edges; ds_val.max_edges = max_edges
+    ds_train.max_nodes = max_nodes; ds_val.max_nodes = max_nodes
+
     dl_train = ds_train.get_dataloader(config['dl_train'], config['model']['name'])
     dl_val   = ds_val.get_dataloader(config['dl_val'], config['model']['name'])
 
