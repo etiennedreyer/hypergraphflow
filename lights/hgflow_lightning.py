@@ -52,8 +52,8 @@ class HGFlowLightning(pl.LightningModule):
         self.name = self.net.name
         
         if self.net.flow:
-            self.FM = self.get_FM()
-            self.sampler = euler_sampler
+            self.FM = self.get_FM(model_config['flow_match'])
+            # self.sampler = euler_sampler
         else:
             self.FM = None
             self.name = 'transformer'
@@ -61,12 +61,19 @@ class HGFlowLightning(pl.LightningModule):
         if self.net.supervise_attn_mask:
             self.name += "_masked"
 
-    def get_FM(self):
+    def get_FM(self, config_FM):
 
         from flow_matching.path import AffineProbPath
-        from flow_matching.path.scheduler import CondOTScheduler
+        import flow_matching.path.scheduler as schedulers
 
-        path = AffineProbPath(scheduler=CondOTScheduler())
+        if config_FM.get('scheduler', 'ot') == 'ot':
+            path = AffineProbPath(scheduler=schedulers.CondOTScheduler())
+        elif config_FM['scheduler'].startswith('poly'):
+            power = float(config_FM['scheduler'].split('poly')[-1])
+            path = AffineProbPath(scheduler=schedulers.PolynomialConvexScheduler(n=power))
+        else:
+            raise NotImplementedError
+
         return path
     
     def sample_location_and_conditional_flow(self, im_1, im_0=None):

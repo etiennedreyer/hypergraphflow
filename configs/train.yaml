@@ -4,7 +4,7 @@ dataset: convex_hull
 # learning_rate: 3.0e-4
 learning_rate: 1.0e-3
 num_epochs: 1000
-num_workers: 10
+num_workers: 4
 nray: 0
 seed: 123456
 accelerator: 'cuda'

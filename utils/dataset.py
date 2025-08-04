@@ -87,7 +87,7 @@ class HyperGraphDataset:
         
     def get_dataloader(self, dl_config, model_name):
 
-        self.shuffle = dl_config.get('shuffle', True)
+        self.shuffle = dl_config['shuffle']
         self.batch_size = dl_config['batch_size']
         ### 1) Get sampler (for refiner only)
         if 'refiner' in model_name:

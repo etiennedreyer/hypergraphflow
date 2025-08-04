@@ -40,5 +40,6 @@ indicator_predictor:
     activation: relu
 
 flow_match:
+    scheduler: poly3
     solver: euler
     steps: 25
