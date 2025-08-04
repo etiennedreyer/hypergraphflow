@@ -187,7 +187,7 @@ class HGFlow(nn.Module):
                 # mask = im_t.repeat(self.ca_layers[0].num_heads, 1, 1)  # HACK! adding im_t to attention
                 mask = torch.cat([im_t, torch.zeros_like(im_t).repeat(self.ca_layers[0].num_heads - 1, 1, 1)], dim=0) # only apply to first head
 
-            if self.ca_layer_type == 'dual':         
+            if self.ca_layer_type == 'dual':
                 mask_a = torch.transpose(mask, 1, 2) if mask is not None else None
 
                 if self.supervise_attn_mask:
@@ -197,7 +197,7 @@ class HGFlow(nn.Module):
 
                 n, h = layer(n, h, c=t, attn_mask_a=mask_a, attn_mask_b=mask)
             else:
-                h = layer(h, n, c=t, attn_mask_CA=mask, key_padding_mask_CA=node_mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
+                h = layer(h, n, c=t, attn_mask_CA=mask) #, key_padding_mask_CA=node_mask) #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))  # h is updated with n
 
         ### dot-product approach:
         inc = self.sigmoid(
