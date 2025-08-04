@@ -2,7 +2,7 @@ name: hgflow
 
 ### dimensions
 num_node_features: &F 3
-num_edges: &K 42
+num_edges: 42
 hidden_dim: &H 36
 
 ### hyperparameters
@@ -11,7 +11,7 @@ timestep_embedding: true
 supervise_attn_mask: false
 
 node_embedder:
-    input_dim: *F
+    input_dim: *F # this gets overwritten in hgflow.py
     layers: []
     output_dim: *H
     activation: relu

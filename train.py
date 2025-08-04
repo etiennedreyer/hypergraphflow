@@ -39,11 +39,6 @@ def get_config(config_train, config_model=None, config_dataset=None):
     with open(config['dataset'], 'r') as f:
         config['dataset'] = yaml.safe_load(f)
 
-    # Make sure num input features matches dataset
-    if 'num_node_features' in config['model']:
-        config['model']['num_node_features'] = config['dataset']['D']
-    ### TODO: do the same for num_edges
-
     return config
 
 
@@ -128,14 +123,22 @@ def train():
     ### Config
     config = get_config(args.config_train, args.config_model, args.config_dataset)
 
-    ### Model
-    model = get_model(config)
-
     ### Dataset
     ds_train = HyperGraphDataset(config['dataset'], config['dl_train']['total_size'])
+    config['dataset']['num_edges'] = ds_train.max_edges
+    config['dataset']['num_nodes'] = ds_train.max_nodes
     ds_val   = HyperGraphDataset(config['dataset'], config['dl_val']['total_size'])
-    dl_train = ds_train.get_dataloader(config['dl_train'], model.name)
-    dl_val   = ds_val.get_dataloader(config['dl_val'], model.name)
+    dl_train = ds_train.get_dataloader(config['dl_train'], config['model']['name'])
+    dl_val   = ds_val.get_dataloader(config['dl_val'], config['model']['name'])
+
+    # Make sure dimensions are fitting for dataset
+    if 'num_node_features' in config['model']:
+        config['model']['num_node_features'] = ds_train.in_feats
+    if 'num_edges' in config['model']:
+        config['model']['num_edges'] = ds_train.max_edges
+
+    ### Model
+    model = get_model(config)
 
     ### Trainer
     trainer = get_trainer(config, model.name, ds_train.name)

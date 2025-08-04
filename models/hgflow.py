@@ -19,6 +19,7 @@ class HGFlow(nn.Module):
 
         self.flow = ('flow_match' in self.config)
         self.name = self.config['name']
+        self.num_node_features = self.config['num_node_features']
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
@@ -28,7 +29,7 @@ class HGFlow(nn.Module):
 
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
-            input_dim=emb_cfg['input_dim'],
+            input_dim=self.num_node_features,
             layers=emb_cfg['layers'],
             output_dim=emb_cfg['output_dim'],
             activation=emb_cfg['activation']

@@ -49,9 +49,15 @@ class HyperGraphDataset:
 
             ### overwrite max cardinality
             if 'num_edges' in config:
-                self.max_edges = config['max_edges']
+                if config['num_edges'] > self.max_edges:
+                    self.max_edges = config['num_edges']
+                else:
+                    raise ValueError("num_edges in config is smaller than max in the dataset!")
             if 'num_nodes' in config:
-                self.max_nodes = config['max_nodes']
+                if config['num_nodes'] > self.max_nodes:
+                    self.max_nodes = config['num_nodes']
+                else:
+                    raise ValueError("num_nodes in config is smaller than max in the dataset!")
 
         else:
             raise NotImplementedError(f"Dataset {self.name} unimplemented.")
