@@ -19,3 +19,8 @@ dl_val:
   total_size: 2000
   batch_size: 64
   shuffle: false
+
+dl_test:
+  total_size: 2000
+  batch_size: 64
+  shuffle: false

@@ -11,6 +11,7 @@ import wandb
 import yaml
 import argparse
 import os
+import random
 
 def get_config(config_train, config_model=None, config_dataset=None):
 
@@ -42,9 +43,34 @@ def get_config(config_train, config_model=None, config_dataset=None):
     return config
 
 
+def get_dataset(config):
+
+    total_size = 0
+    splits = ['train', 'val', 'test']
+    split_indices = {}
+    for split in splits:
+        if f'dl_{split}' not in config:
+            continue
+        split_size = config[f'dl_{split}']['total_size']
+        split_indices[split] = list(range(total_size, total_size + split_size))
+        total_size += split_size
+
+    ds = HyperGraphDataset(config['dataset'], total_size)
+
+    dls = {}
+    for split, indices in split_indices.items():
+        dls[split] = ds.get_dataloader(config[f'dl_{split}'], indices=indices)
+
+    print(f"Generated dataset {ds.name} with {total_size} examples, ")
+    print(f"max nodes: {ds.max_nodes}, max edges: {ds.max_edges}")
+    print(f"Splits: {', '.join(split_indices.keys())} \
+          with sizes: {', '.join(str(len(indices)) for indices in split_indices.values())}")
+
+    return ds, dls
+
+
 def get_model(config):
     # Lightning instance
-    lightning.seed_everything(config.get('seed', 123456))
     num_ray = config.get('nray', 0)
     if num_ray > 0:
         ray.init(num_cpus=num_ray, include_dashboard=False)
@@ -69,35 +95,39 @@ def get_model(config):
     return model
 
 
-def get_trainer(config, model_name, project_name):
+def get_trainer(config, model_name, project_name, log=True):
 
-    ### Logger
-    logger = WandbLogger(
-        name=model_name,
-        project=project_name,
-        log_model=False,
-    )
-    run = logger.experiment
+    if log:
+        ### Logger
+        logger = WandbLogger(
+            name=model_name,
+            project=project_name,
+            log_model=False,
+        )
+        run = logger.experiment
 
-    ### Log config
-    config_artifact = wandb.Artifact("config", type="config")
-    temp_config_path = f"config_{run.id}.yaml"
-    with open(temp_config_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False)
-    config_artifact.add_file(temp_config_path, name="config.yaml")
-    run.log_artifact(config_artifact)
-    os.remove(temp_config_path)
+        ### Log config
+        config_artifact = wandb.Artifact("config", type="config")
+        temp_config_path = f"config_{run.id}.yaml"
+        with open(temp_config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False)
+        config_artifact.add_file(temp_config_path, name="config.yaml")
+        run.log_artifact(config_artifact)
+        os.remove(temp_config_path)
 
-    ### Log code
-    run.log_code(".")
+        ### Log code
+        run.log_code(".")
 
-    ### Checkpoints
-    checkpoint_callback = ModelCheckpoint(
-        filename="epoch={epoch}-step={step}-val_loss={loss/val:.4f}",
-        monitor='loss/val',
-        mode='min',
-        save_top_k=1,
-    )
+        ### Checkpoints
+        checkpoint_callback = ModelCheckpoint(
+            filename="epoch={epoch}-step={step}-val_loss={loss/val:.4f}",
+            monitor='loss/val',
+            mode='min',
+            save_top_k=1,
+        )
+    else:
+        logger = None
+        checkpoint_callback = None
 
     ### Training
     trainer = lightning.Trainer(
@@ -112,43 +142,52 @@ def get_trainer(config, model_name, project_name):
     return trainer
 
 
-def train():
+if __name__ == "__main__":
 
     ### Args
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_train", "-ct", type=str, required=True, help="Path to the training config file")
     parser.add_argument("--config_model", "-cm", type=str, required=False, help="Path to the model config file")
     parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
+    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test"], help="Mode to run the script in")
     args = parser.parse_args()
 
     ### Config
     config = get_config(args.config_train, args.config_model, args.config_dataset)
 
+    ### Manually add sampler for refiner
+    if 'refiner' in config['model']['name']:
+        for split in ['train', 'val', 'test']:
+            if f'dl_{split}' in config:
+                config[f'dl_{split}']['sampler'] = True
+
+    ### Random seed
+    seed = config.get('seed', 123456)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
+    torch.cuda.manual_seed(seed)
+    lightning.seed_everything(seed, workers=True)
+
     ### Dataset
-    ds_train = HyperGraphDataset(config['dataset'], config['dl_train']['total_size'])
-    ds_val   = HyperGraphDataset(config['dataset'], config['dl_val']['total_size'])
-
-    max_edges = max(ds_train.max_edges, ds_val.max_edges)
-    max_nodes = max(ds_train.max_nodes, ds_val.max_nodes)
-    ds_train.max_edges = max_edges; ds_val.max_edges = max_edges
-    ds_train.max_nodes = max_nodes; ds_val.max_nodes = max_nodes
-
-    dl_train = ds_train.get_dataloader(config['dl_train'], config['model']['name'])
-    dl_val   = ds_val.get_dataloader(config['dl_val'], config['model']['name'])
-
-    # Make sure dimensions are fitting for dataset
-    if 'num_node_features' in config['model']:
-        config['model']['num_node_features'] = ds_train.in_feats
-    if 'num_edges' in config['model']:
-        config['model']['num_edges'] = ds_train.max_edges
+    ds, dls = get_dataset(config)
 
     ### Model
+    # Make sure dimensions fit those of dataset
+    if 'num_node_features' in config['model']:
+        config['model']['num_node_features'] = ds.in_feats
+    if 'num_edges' in config['model']:
+        config['model']['num_edges'] = ds.max_edges
     model = get_model(config)
 
     ### Trainer
-    trainer = get_trainer(config, model.name, ds_train.name)
+    trainer = get_trainer(config, model.name, ds.name, log=(args.mode == 'train'))
 
-    trainer.fit(model, dl_train, dl_val)
-
-if __name__ == "__main__":
-    train()
+    if args.mode == 'train':
+        ### Train
+        trainer.fit(model, dls['train'], dls['val'])
+    elif args.mode == 'test':
+        ### Test
+        trainer.test(model, dls['test'])
+    else:
+        raise ValueError("Unknown mode:", args.mode)

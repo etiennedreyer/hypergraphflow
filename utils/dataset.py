@@ -3,6 +3,7 @@ import sys
 import torch
 import torch.nn.functional as F
 sys.path.append("../recurrently_predicting_hypergraphs/")
+from torch.utils.data import DataLoader, Subset
 
 class HyperGraphDataset:
 
@@ -88,12 +89,12 @@ class HyperGraphDataset:
 
             self.collate_fn = padded_collate_fn
         
-    def get_dataloader(self, dl_config, model_name):
+    def get_dataloader(self, dl_config, indices=None):
 
         self.shuffle = dl_config['shuffle']
         self.batch_size = dl_config['batch_size']
-        ### 1) Get sampler (for refiner only)
-        if 'refiner' in model_name:
+        ### 1) Get sampler
+        if dl_config.get('sampler', False):
             self.pad = False
             if self.batch_size > 1:
                 self.get_sampler()
@@ -102,8 +103,13 @@ class HyperGraphDataset:
         ### 2) Get collate function
         self.get_collate_fn()
 
-        return torch.utils.data.DataLoader(
-            self.dataset,
+        ### 3) Get subset of dataset if indices are provided
+        dataset = self.dataset
+        if indices is not None:
+            dataset = Subset(self.dataset, indices)
+
+        return DataLoader(
+            dataset,
             shuffle=self.shuffle if not self.sampler else False,
             batch_size=self.batch_size,
             batch_sampler=self.sampler,
