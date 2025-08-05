@@ -1,3 +1,4 @@
+import numpy as np
 import yaml
 import sys
 import torch
@@ -60,13 +61,18 @@ class HyperGraphDataset:
         else:
             raise NotImplementedError(f"Dataset {self.name} unimplemented.")
 
-    def get_sampler(self):
+    def get_sampler(self, dataset=None, n_points=None):
+
+        if dataset is None:
+            dataset = self.dataset
+        if n_points is None:
+            n_points = self.dataset.n_points
 
         if 'convex_hull' in self.name:
             from convex_hull_dataset import BucketSampler
 
-            self.sampler = BucketSampler(self.dataset, self.batch_size, 
-                                    self.dataset.n_points, 
+            self.sampler = BucketSampler(dataset, self.batch_size, 
+                                    n_points,
                                     shuffle=self.shuffle)
 
     def get_collate_fn(self):
@@ -91,21 +97,23 @@ class HyperGraphDataset:
         
     def get_dataloader(self, dl_config, indices=None):
 
+        ### 1) Get subset of dataset if indices are provided
+        dataset = self.dataset
+        n_points = self.dataset.n_points
+        if indices is not None:
+            dataset = Subset(self.dataset, indices)
+            n_points = [self.dataset.n_points[i] for i in indices]
+
         self.shuffle = dl_config['shuffle']
         self.batch_size = dl_config['batch_size']
-        ### 1) Get sampler
+        ### 2) Get sampler
         if dl_config.get('sampler', False):
             self.pad = False
             if self.batch_size > 1:
-                self.get_sampler()
+                self.get_sampler(dataset, n_points=n_points)
 
-        ### 2) Get collate function
+        ### 3) Get collate function
         self.get_collate_fn()
-
-        ### 3) Get subset of dataset if indices are provided
-        dataset = self.dataset
-        if indices is not None:
-            dataset = Subset(self.dataset, indices)
 
         return DataLoader(
             dataset,
