@@ -98,7 +98,6 @@ class HyperGraphDataset:
             self.pad = False
             if self.batch_size > 1:
                 self.get_sampler()
-                self.batch_size = 1
 
         ### 2) Get collate function
         self.get_collate_fn()
@@ -111,7 +110,7 @@ class HyperGraphDataset:
         return DataLoader(
             dataset,
             shuffle=self.shuffle if not self.sampler else False,
-            batch_size=self.batch_size,
+            batch_size=self.batch_size if not self.sampler else 1,
             batch_sampler=self.sampler,
             collate_fn=self.collate_fn,
             num_workers=self.config.get('num_workers', 0)
