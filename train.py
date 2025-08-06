@@ -125,9 +125,10 @@ def get_trainer(config, model_name, project_name, log=True):
             mode='min',
             save_top_k=1,
         )
+        callbacks = [checkpoint_callback]
     else:
         logger = None
-        checkpoint_callback = None
+        callbacks = []
 
     ### Training
     trainer = lightning.Trainer(
@@ -136,24 +137,13 @@ def get_trainer(config, model_name, project_name, log=True):
         max_epochs=config['num_epochs'],
         check_val_every_n_epoch=1,
         logger=logger,
-        callbacks=[checkpoint_callback],
+        callbacks=callbacks,
     )
 
     return trainer
 
 
-if __name__ == "__main__":
-
-    ### Args
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config_train", "-ct", type=str, required=True, help="Path to the training config file")
-    parser.add_argument("--config_model", "-cm", type=str, required=False, help="Path to the model config file")
-    parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
-    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test"], help="Mode to run the script in")
-    args = parser.parse_args()
-
-    ### Config
-    config = get_config(args.config_train, args.config_model, args.config_dataset)
+def main(config, mode="train", checkpoint=None):
 
     ### Manually add sampler for refiner
     if 'refiner' in config['model']['name']:
@@ -180,14 +170,37 @@ if __name__ == "__main__":
         config['model']['num_edges'] = ds.max_edges
     model = get_model(config)
 
+    ### Checkpoint
+    if checkpoint is not None:
+        print(f"Loading checkpoint from {checkpoint}")
+        model.load_state_dict(torch.load(checkpoint)['state_dict'])
+
     ### Trainer
-    trainer = get_trainer(config, model.name, ds.name, log=(args.mode == 'train'))
+    trainer = get_trainer(config, model.name, ds.name, log=(mode == 'train'))
+
+    return trainer, model, ds, dls
+
+
+if __name__ == "__main__":
+
+    ### Args
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_train", "-ct", type=str, required=True, help="Path to the training config file")
+    parser.add_argument("--config_model", "-cm", type=str, required=False, help="Path to the model config file")
+    parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
+    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test"], help="Mode to run the script in")
+    parser.add_argument("--checkpoint", "-ckpt", type=str, default=None, help="Path to the checkpoint file to load")
+    args = parser.parse_args()
+
+    ### Config
+    config = get_config(args.config_train, args.config_model, args.config_dataset)
+
+    ### Main
+    trainer, model, ds, dls = main(config, mode=args.mode, checkpoint=args.checkpoint)
 
     if args.mode == 'train':
-        ### Train
         trainer.fit(model, dls['train'], dls['val'])
     elif args.mode == 'test':
-        ### Test
         trainer.test(model, dls['test'])
     else:
         raise ValueError("Unknown mode:", args.mode)
