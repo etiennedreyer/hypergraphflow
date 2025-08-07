@@ -78,9 +78,12 @@ class HGFlowLightning(pl.LightningModule):
     
     def sample_location_and_conditional_flow(self, im_1, im_0=None):
 
-        ### standard normal by default
+        ### source distribution
         if im_0 is None:
             im_0 = self.net.get_init_im(*im_1.shape, device=im_1.device) #0.2 + 0.05*torch.randn_like(im_1, device=im_1.device)
+
+        ### align source with target with minimal loss
+        im_0, _, _ = self.align_incidence_matrix(im_0, im_1)
 
         ### random timestep between 0 and 1
         t = torch.rand(im_1.shape[0], device=im_1.device)
@@ -114,7 +117,7 @@ class HGFlowLightning(pl.LightningModule):
 
         im_pred = torch.clamp(im_pred, 0, 1)
         loss, indices = self.loss(im_pred, im_true, return_indices=True)
-        indices = torch.from_numpy(indices[:,1,...])
+        indices = torch.from_numpy(indices[:,1,...]).to(im_pred.device).long()
         indices = indices.unsqueeze(-1).expand(-1, -1, im_pred.shape[2])
 
         im_pred_aligned = torch.gather(im_pred, 1, indices)

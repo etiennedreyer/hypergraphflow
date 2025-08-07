@@ -119,13 +119,34 @@ class HGFlow(nn.Module):
         if self.supervise_attn_mask:
             self.n_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
             self.h_proj = nn.Linear(self.hidden_dim, self.hidden_dim)
+        elif self.use_im_attn_mask:
+            ### Nheads learnable weights to scale the attention
+            self.im_attn_weights = nn.Linear(self.ca_layers[0].CA.c_dim, self.ca_layers[0].num_heads)
+
+            ### Set only the first bias element to 1, rest to 0
+            with torch.no_grad():
+                bias = torch.zeros(self.ca_layers[0].num_heads)
+                bias[0] = 1.0
+                self.im_attn_weights.bias.copy_(bias)
+
+        if self.timestep_embedding:
+            self.alpha_layer = nn.Sequential(
+                nn.Linear(self.ca_layers[0].CA.c_dim, 1),
+                nn.Sigmoid()
+            )
+            ### Initialize alpha to be close to 1
+            nn.init.constant_(self.alpha_layer[0].bias, 3.0)
 
         self.sigmoid = nn.Sigmoid()
 
     def get_init_im(self, bs, num_edges, num_nodes, device):
         # im_0 = torch.randn(bs, num_edges, num_nodes, device=device)
         # im_0 = 0.5 + 0.1*torch.randn(bs, num_edges, num_nodes, device=device)
-        im_0 = torch.rand(bs, num_edges, num_nodes, device=device)
+        # im_0 = torch.rand(bs, num_edges, num_nodes, device=device)
+        ### bernoulli with probability p
+        inc_0 = torch.bernoulli(torch.full((bs, num_edges, num_nodes - 1), 0.2, device=device))
+        ind_0 = torch.bernoulli(torch.full((bs, num_edges, 1), 0.5, device=device))
+        im_0 = torch.cat([inc_0, ind_0], dim=-1)
         return im_0
 
 
@@ -164,14 +185,16 @@ class HGFlow(nn.Module):
 
         ### Timestep embedding
         if t is not None:
-            if len(t.shape) == 0:
-                t = t.unsqueeze(0)
-            t = self.timestep_embedder(t) \
-                if self.timestep_embedding else None
-        
+            if len(t.shape) == 0: # during sampling, t is same for entire batch
+                t = t.unsqueeze(0).expand(bs)
+            assert t.shape == (bs,), f"Expected t.shape of ({bs},), got {t.shape}"
+            t = self.timestep_embedder(t) if self.timestep_embedding else None
+
         ### Incidence matrix attention mask
         if self.use_im_attn_mask:
-            mask = torch.cat([im_t, torch.zeros_like(im_t).repeat(self.ca_layers[0].num_heads - 1, 1, 1)], dim=0) # only apply to first head
+            im_attn_weights = self.im_attn_weights(t).view(bs, self.ca_layers[0].num_heads, 1, 1)
+            mask = im_attn_weights * im_t.unsqueeze(1)
+            mask = mask.view(bs * self.ca_layers[0].num_heads, num_edges, num_nodes)
 
             # since you can't use both float attn mask and bool key_padding mask,
             # we need to create an additive version of the node mask using -infty
@@ -220,9 +243,12 @@ class HGFlow(nn.Module):
                 #, key_padding_mask_SA=(ind_t.squeeze(-1) < 0.5))
 
         ### dot-product approach:
-        inc = self.sigmoid(
+        inc_update = self.sigmoid(
                 (h @ torch.transpose(n, 1, 2)) / math.sqrt(self.hidden_dim)
             )
+
+        alpha = self.alpha_layer(t).unsqueeze(-1) if self.timestep_embedding else 1.0
+        inc = (1 - alpha) * im_t + alpha * inc_update
 
         if self.indicator_prediction:
             ind = self.sigmoid(self.indicator_predictor(h)) # [bs, num_edges, 1]
