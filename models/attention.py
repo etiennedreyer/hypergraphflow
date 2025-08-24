@@ -12,6 +12,7 @@ class AttentionLayer(nn.Module):
         batch_first=True,
         activation="silu",
         gated=False,
+        scaling=False,
         ffn_factor=2,
     ):
         super().__init__()
@@ -23,6 +24,9 @@ class AttentionLayer(nn.Module):
         self.num_heads = num_heads
         self.batch_first = batch_first
         self.gated = gated
+        self.scaling = scaling
+
+        assert not (scaling and gated), "scaling and gated should not both be True"
 
         ### First norm
         self.norm1 = nn.LayerNorm(
@@ -61,6 +65,11 @@ class AttentionLayer(nn.Module):
                             model_dim,
                             elementwise_affine=(c_dim is None),
                         )
+
+        # Scaling parameters, initialized to zero
+        if scaling:
+            self.alpha_attn = nn.Parameter(torch.tensor(0.0))
+            self.alpha_ffn = nn.Parameter(torch.tensor(0.0))
 
     def modulate(self, x, scale, shift):
         return x * (1 + scale) + shift
@@ -116,6 +125,8 @@ class AttentionLayer(nn.Module):
         if self.gated and self.c_dim is not None:
             ### gate attention
             attn = gate1 * attn
+        elif self.scaling:
+            attn = self.alpha_attn * attn
 
         ### residual + attention
         x = x + attn
@@ -133,6 +144,8 @@ class AttentionLayer(nn.Module):
         if self.gated and self.c_dim is not None:
             ### gate ffn
             ffn_out = gate2 * ffn_out
+        elif self.scaling:
+            ffn_out = self.alpha_ffn * ffn_out
 
         ### residual + ffn
         x = x + ffn_out

@@ -89,6 +89,13 @@ def get_model(config):
             model_config=config['model'],
             train_config=config,
         )
+    elif 'hhrm' in config['model']['name']:
+        from lights.hhrm_lightning import HHRMLightning
+
+        model = HHRMLightning(
+            model_config=config['model'],
+            train_config=config,
+        )
     else:
         raise ValueError("Unknown model type:", config['model']['name'])
     
@@ -143,7 +150,7 @@ def get_trainer(config, model_name, project_name, log=True):
     return trainer
 
 
-def main(config, mode="train", checkpoint=None):
+def main(config, mode="train", checkpoint=None, overtrain=False):
 
     ### Manually add sampler for refiner
     if 'refiner' in config['model']['name']:
@@ -161,6 +168,11 @@ def main(config, mode="train", checkpoint=None):
 
     ### Dataset
     ds, dls = get_dataset(config)
+
+    if overtrain:
+        print("WARNING: Using training dataloader for validation")
+        dls['val'] = dls['train']
+        dls['test'] = dls['train']
 
     ### Model
     # Make sure dimensions fit those of dataset
@@ -190,13 +202,14 @@ if __name__ == "__main__":
     parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
     parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test"], help="Mode to run the script in")
     parser.add_argument("--checkpoint", "-ckpt", type=str, default=None, help="Path to the checkpoint file to load")
+    parser.add_argument("--overtrain", "-ot", default=False, action='store_true', help="Whether to use training dl for validation")
     args = parser.parse_args()
 
     ### Config
     config = get_config(args.config_train, args.config_model, args.config_dataset)
 
     ### Main
-    trainer, model, ds, dls = main(config, mode=args.mode, checkpoint=args.checkpoint)
+    trainer, model, ds, dls = main(config, mode=args.mode, checkpoint=args.checkpoint, overtrain=args.overtrain)
 
     if args.mode == 'train':
         trainer.fit(model, dls['train'], dls['val'])

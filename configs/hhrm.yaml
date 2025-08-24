@@ -1,0 +1,47 @@
+name: hhrm
+
+### dimensions
+num_node_features: &F 3
+num_edges: &K 42
+hidden_dim: &H 48
+
+node_embedder:
+    input_dim: *F # this gets overwritten in hhrm.py
+    layers: []
+    output_dim: *H
+    activation: relu
+
+node_SA_L:
+    model_dim: *H
+    num_heads: 3
+    num_layers: 3
+    gated: false
+    scaling: true
+    activation: silu
+    ffn_factor: 2
+
+node_SA_H:
+    model_dim: *H
+    num_heads: 3
+    num_layers: 3
+    gated: false
+    scaling: true
+    activation: silu
+    ffn_factor: 2
+
+incidence_predictor:
+    input_dim: *H
+    layers: [128, 64]
+    output_dim: *K
+    activation: relu
+
+indicator_predictor:
+    input_dim: *H
+    layers: [128, 64]
+    output_dim: *K
+    activation: relu
+
+hrm:
+    iters_L: 2
+    iters_H: 2
+    segments: 4
