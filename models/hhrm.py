@@ -49,6 +49,10 @@ class HHRM(nn.Module):
             activation=emb_cfg['activation']
         )
 
+        ### Injection layer norm
+        self.norm_L = nn.LayerNorm(self.hidden_dim, elementwise_affine=False)
+        self.norm_H = nn.LayerNorm(self.hidden_dim, elementwise_affine=False)
+
         ### Node self-attention (low-level)
         SA_L_cfg = self.config['node_SA_L']
         self.SA_L = nn.ModuleList([
@@ -124,25 +128,25 @@ class HHRM(nn.Module):
 
                     if not (last_iter_H and last_iter_L):
                         ### Low-level update
+                        z_L = self.norm_L(z_L + z_H + input_state)
                         for SA in self.SA_L:
-                            z_L = SA(z_L + z_H + input_state, 
-                                        key_padding_mask=node_mask)
+                            z_L = SA(z_L, key_padding_mask=node_mask)
 
                 if not last_iter_H:
                     ### High-level update
+                    z_H = self.norm_H(z_H + z_L)
                     for SA in self.SA_H:
-                        z_H = SA(z_H + z_L,
-                                    key_padding_mask=node_mask)
+                        z_H = SA(z_H, key_padding_mask=node_mask)
 
         assert not z_H.requires_grad and not z_L.requires_grad
 
         ### 1-step gradient approximation
+        z_L = self.norm_L(z_L + z_H + input_state)
         for SA in self.SA_L:
-            z_L = SA(z_L + z_H + input_state,
-                        key_padding_mask=node_mask)
+            z_L = SA(z_L, key_padding_mask=node_mask)
+        z_H = self.norm_H(z_H + z_L)
         for SA in self.SA_H:
-            z_H = SA(z_H + z_L,
-                        key_padding_mask=node_mask)
+            z_H = SA(z_H, key_padding_mask=node_mask)
 
         ### prediction
         inc = self.incidence_predictor(z_H) # (B, N, K)
