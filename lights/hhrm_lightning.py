@@ -51,6 +51,14 @@ class HHRMLightning(pl.LightningModule):
 
         return optimizer
     
+    def forward(self, node_feats):
+
+        hid_state = self.net.get_init_state()
+        for s in range(self.net.segments):
+            pred, hid_state = self.net(hid_state, node_feats)
+
+        return pred
+
     def training_step(self, batch, batch_idx):
 
         node_feats, im_truth = batch
@@ -87,12 +95,7 @@ class HHRMLightning(pl.LightningModule):
 
         node_feats, im_truth = batch
 
-        hid_state = self.net.get_init_state()
-
-        for s in range(self.net.segments):
-            pred, hid_state = self.net(hid_state, node_feats)
-        
-        # print("Min: ", pred.min().item(), " Max: ", pred.max().item())
+        pred = self(node_feats)
         loss = self.loss(pred, im_truth).mean()
 
         ### Convert to probs

@@ -193,6 +193,17 @@ def main(config, mode="train", checkpoint=None, overtrain=False):
     return trainer, model, ds, dls
 
 
+def count_flops(model, dl):
+    from fvcore.nn import FlopCountAnalysis, flop_count_table
+
+    model.eval()
+    batch = next(iter(dl))
+    in_feats, _ = batch
+    flops = FlopCountAnalysis(model, in_feats)
+    print(flop_count_table(flops))
+    print(f"\nTotal FLOPs: {flops.total()}")
+
+
 if __name__ == "__main__":
 
     ### Args
@@ -200,7 +211,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_train", "-ct", type=str, required=True, help="Path to the training config file")
     parser.add_argument("--config_model", "-cm", type=str, required=False, help="Path to the model config file")
     parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
-    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test"], help="Mode to run the script in")
+    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test", "flop"], help="Mode to run the script in")
     parser.add_argument("--checkpoint", "-ckpt", type=str, default=None, help="Path to the checkpoint file to load")
     parser.add_argument("--overtrain", "-ot", default=False, action='store_true', help="Whether to use training dl for validation")
     args = parser.parse_args()
@@ -215,5 +226,7 @@ if __name__ == "__main__":
         trainer.fit(model, dls['train'], dls['val'])
     elif args.mode == 'test':
         trainer.test(model, dls['test'])
+    elif args.mode == 'flop':
+        count_flops(model, dls['train'])
     else:
         raise ValueError("Unknown mode:", args.mode)
