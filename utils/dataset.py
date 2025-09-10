@@ -32,34 +32,45 @@ class HyperGraphDataset:
                 unit_norm=config.get('norm'),
                 length=total_size
             )
-            self.max_nodes = max(self.dataset.n_points)
-            self.max_edges = self.dataset.max_facets
-
             self.name += "_spherical" if config['norm'] else "_normal"
-            self.name += f"_{config['D']}D"
-            self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
-            self.in_feats = config['D']
 
-            ### overwrite max cardinality
-            if 'num_edges' in config:
-                if config['num_edges'] >= self.max_edges:
-                    self.max_edges = config['num_edges']
-                else:
-                    raise ValueError(
-                        f"num_edges in config is smaller than max in the dataset: "
-                        f"{config['num_edges']} < {self.max_edges}!"
-                    )
-            if 'num_nodes' in config:
-                if config['num_nodes'] >= self.max_nodes:
-                    self.max_nodes = config['num_nodes']
-                else:
-                    raise ValueError(
-                        f"num_nodes in config is smaller than max in the dataset: "
-                        f"{config['num_nodes']} < {self.max_nodes}!"
-                    )
+        ### Delaunay Triangulation
+        elif 'delaunay_triangulation' in self.name:
+            from delaunay_data import DelaunayTriangulationData
 
+            self.dataset = DelaunayTriangulationData(
+                n_range=torch.arange(config['N'][0], config['N'][1]),
+                dim=config['D'],
+                length=total_size
+            )
         else:
             raise NotImplementedError(f"Dataset {self.name} unimplemented.")
+
+        self.max_nodes = max(self.dataset.n_points)
+        self.max_edges = self.dataset.max_facets
+
+        self.name += f"_{config['D']}D"
+        self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
+        self.in_feats = config['D']
+
+        ### overwrite max cardinality
+        if 'num_edges' in config:
+            if config['num_edges'] >= self.max_edges:
+                self.max_edges = config['num_edges']
+            else:
+                raise ValueError(
+                    f"num_edges in config is smaller than max in the dataset: "
+                    f"{config['num_edges']} < {self.max_edges}!"
+                )
+        if 'num_nodes' in config:
+            if config['num_nodes'] >= self.max_nodes:
+                self.max_nodes = config['num_nodes']
+            else:
+                raise ValueError(
+                    f"num_nodes in config is smaller than max in the dataset: "
+                    f"{config['num_nodes']} < {self.max_nodes}!"
+                )
+
 
     def get_sampler(self, dataset=None, n_points=None):
 
@@ -77,7 +88,7 @@ class HyperGraphDataset:
 
     def get_collate_fn(self):
 
-        if 'convex_hull' in self.name:
+        if ('convex_hull' in self.name) or ('delaunay_triangulation' in self.name):
             from convex_hull_dataset import get_collate_fn
             self.collate_fn = get_collate_fn(self.max_edges, 
                                                 add_indicator=self.add_indicator)
@@ -121,5 +132,5 @@ class HyperGraphDataset:
             batch_size=self.batch_size if not self.sampler else 1,
             batch_sampler=self.sampler,
             collate_fn=self.collate_fn,
-            num_workers=self.config.get('num_workers', 0)
+            num_workers=dl_config['num_workers']
         )

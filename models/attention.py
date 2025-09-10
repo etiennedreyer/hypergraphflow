@@ -2,18 +2,38 @@ import torch
 import torch.nn as nn
 from models.mlp import MLP
 
+
+class ContextProjector(nn.Module):
+    def __init__(self, c_dim, model_dim, gated, activation="silu"):
+        super().__init__()
+        self.gated = gated
+        self.out_factor = 2 * (1 + 1 + int(gated))  # scale, shift, (gate) x2
+        self.c_proj = nn.Sequential(
+            nn.SiLU() if activation == "silu" else nn.ReLU(),
+            nn.Linear(c_dim, model_dim * self.out_factor)
+        )
+        ### Initial scale, shift, gate are 0
+        nn.init.constant_(self.c_proj[1].weight, 0)
+        nn.init.constant_(self.c_proj[1].bias, 0)
+
+    def forward(self, c):
+        affine_params = self.c_proj(c).unsqueeze(1).chunk(self.out_factor, dim=-1)
+        return affine_params
+
+
 class AttentionLayer(nn.Module):
     def __init__(
         self,
-        kind,
-        model_dim,
-        c_dim=None,
-        num_heads=4,
-        batch_first=True,
-        activation="silu",
-        gated=False,
-        scaling=False,
-        ffn_factor=2,
+        kind: str, # "self" or "cross"
+        model_dim: int,
+        c_dim: int = None,
+        num_heads: int = 4,
+        batch_first: bool = True,
+        activation: str = "silu",
+        gated: bool = False,
+        scaling: bool = False,
+        ffn_factor: int = 2,
+        c_proj: nn.Module = None,
     ):
         super().__init__()
 
@@ -26,7 +46,9 @@ class AttentionLayer(nn.Module):
         self.gated = gated
         self.scaling = scaling
 
+        ### Check args
         assert not (scaling and gated), "scaling and gated should not both be True"
+        assert not (c_dim is None and c_proj is not None), "c_proj requires c_dim != None"
 
         ### First norm
         self.norm1 = nn.LayerNorm(
@@ -36,14 +58,11 @@ class AttentionLayer(nn.Module):
 
         ### Context embedding projection to modulate and gate query
         if c_dim is not None:
-            self.c_proj = nn.Sequential(
-                nn.SiLU() if activation == "silu" else nn.ReLU(),
-                nn.Linear(c_dim, model_dim * (4 + 2*int(gated))) # scale, shift, (gate)
-            )
-
-            ### Initial scale, shift, gate are 0
-            nn.init.constant_(self.c_proj[1].weight, 0)
-            nn.init.constant_(self.c_proj[1].bias, 0)
+            if c_proj is None:
+                self.c_proj = ContextProjector(c_dim, model_dim, \
+                                               gated, activation=activation)
+            else:
+                self.c_proj = c_proj # shared weights for context projection
 
         ### Multi-head attention layers
         self.mha = nn.MultiheadAttention(
@@ -100,13 +119,12 @@ class AttentionLayer(nn.Module):
         y_norm = self.norm1(y) if y is not None else None
 
         if self.c_dim is not None:
+            affine_params = self.c_proj(c)
             ### unpack parameters from context projection
             if self.gated:
-                scale1, shift1, gate1, \
-                    scale2, shift2, gate2 = self.c_proj(c).unsqueeze(1).chunk(6, dim=-1)
+                scale1, shift1, gate1, scale2, shift2, gate2 = affine_params
             else:
-                scale1, shift1, \
-                    scale2, shift2 = self.c_proj(c).unsqueeze(1).chunk(4, dim=-1)
+                scale1, shift1, scale2, shift2 = affine_params
 
             ### context modulation 1
             x_norm = self.modulate(x_norm, scale1, shift1)

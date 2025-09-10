@@ -1,40 +1,35 @@
-import yaml
 import torch
-import pytorch_lightning as pl
 from numpy.random import default_rng
 
 import sys
 sys.path.append("../../recurrently_predicting_hypergraphs/")
-
 from hypergraph_refiner import IterativeRefiner
 import metrics
 import misc
 
-class IRModel(pl.LightningModule):
+from lights.base_lightning import BaseLightning
+
+
+class IRModel(BaseLightning):
     def __init__(self, model_config, train_config):
-        super().__init__()
+        super().__init__(model_config, train_config)
 
-        if type(model_config) is str:
-            with open(model_config, 'r') as f:
-                model_config = yaml.safe_load(f)
-
-        if type(train_config) is str:
-            with open(train_config, 'r') as f:
-                train_config = yaml.safe_load(f)
-
-        self.config = {**model_config, **train_config}
+        self.net = IterativeRefiner(
+                    self.config['num_edges'],
+                    self.config['num_node_features'],
+                    self.config['hidden_dim'],
+                    self.config['iters_total']
+            )
 
         self.name = self.config['name']
 
-        self.net = IterativeRefiner(self.config['num_edges'], 
-                                    self.config['num_node_features'],
-                                    self.config['hidden_dim'], self.config['iters_total'])
         self.automatic_optimization = False
-        self.sampler = misc.IntegerPartitionSampler(self.config['iters_total']-self.config['iters_bptt']*self.config['blocks_bptt'],
-                                                    self.config['blocks_bptt'],
-                                                    default_rng(self.config['seed'])
-                                                )
-                                                    
+
+        self.sampler = misc.IntegerPartitionSampler(
+            self.config['iters_total']-self.config['iters_bptt']*self.config['blocks_bptt'],
+            self.config['blocks_bptt'],
+            default_rng(self.config['seed'])
+        )
 
     def forward(self, inputs):
         e_t, v_t, i_t = self.net.get_initial(inputs)

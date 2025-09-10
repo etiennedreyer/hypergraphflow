@@ -1,10 +1,14 @@
-model: refiner
+model: hhrm
 dataset: convex_hull
 
-learning_rate: 3.0e-5
-# learning_rate: 1.0e-3
+optimizer: adam_atan2
+scheduler: {
+  "name": "cosine_warmup",
+  "warmup_epochs": 10
+}
+learning_rate: 1.0e-4
 num_epochs: 1000
-num_workers: 4
+num_workers: &W 4
 nray: 0
 seed: 123456
 accelerator: 'cuda'
@@ -14,13 +18,16 @@ dl_train:
   total_size: 20000
   batch_size: 64
   shuffle: true
+  num_workers: *W
 
 dl_val:
   total_size: 2000
   batch_size: 64
   shuffle: false
+  num_workers: *W
 
 dl_test:
   total_size: 2000
   batch_size: 64
   shuffle: false
+  num_workers: *W

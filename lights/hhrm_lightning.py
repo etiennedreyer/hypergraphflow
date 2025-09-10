@@ -1,7 +1,4 @@
-import yaml
 import torch
-import pytorch_lightning as pl
-from models.hhrm import HHRM
 
 import sys
 sys.path.append("../../recurrently_predicting_hypergraphs/")
@@ -10,21 +7,21 @@ import metrics
 import torch.nn.functional as F
 from functools import partial
 
+from models.hhrm import HHRM
+from lights.base_lightning import BaseLightning
 
-class HHRMLightning(pl.LightningModule):
+
+class HHRMLightning(BaseLightning):
 
     def __init__(self, model_config, train_config):
-        super().__init__()
-        if type(train_config) is str:
-            with open(train_config, 'r') as f:
-                self.config = yaml.safe_load(f)
-        else:
-            self.config = train_config
-        self.net = HHRM(model_config)
-        self.name = self.net.name
+        super().__init__(model_config, train_config)
+
+        self.net = HHRM(self.config)
+
         self.loss = partial(metrics.LAP_loss, 
-                            loss_fn=F.binary_cross_entropy_with_logits,
-                            pos_weight=torch.tensor(10.0)
+                            loss_fn=partial(F.binary_cross_entropy_with_logits, 
+                                                pos_weight=torch.tensor(10.0)
+                                            ),
                             )
 
         ### Need to implement deep supervision manually
@@ -40,24 +37,20 @@ class HHRMLightning(pl.LightningModule):
 
         return im_pred_aligned, loss, indices
 
-    def configure_optimizers(self):
-        # optimizer = torch.optim.AdamW(
-        #     self.net.parameters(),
-        #     lr=self.config['learning_rate']
-        # )
-
-        from adam_atan2_pytorch import AdamAtan2
-        optimizer = AdamAtan2(self.net.parameters(), lr=self.config['learning_rate'])
-
-        return optimizer
-    
-    def forward(self, node_feats):
+    def forward(self, node_feats, return_segments=False):
 
         hid_state = self.net.get_init_state()
+        preds = []
+        draft = None
         for s in range(self.net.segments):
-            pred, hid_state = self.net(hid_state, node_feats)
+            pred, hid_state = self.net(hid_state, node_feats, segment=s, draft=draft)
+            preds.append(pred)
+            draft = torch.sigmoid(pred.detach())
 
-        return pred
+        if return_segments:
+            return preds
+        else:
+            return preds[-1]
 
     def training_step(self, batch, batch_idx):
 
@@ -66,11 +59,12 @@ class HHRMLightning(pl.LightningModule):
         hid_state = self.net.get_init_state()
 
         ### Deep Supervision
+        draft = None
         for s in range(self.net.segments):
 
             self.optimizers().zero_grad()
 
-            pred, hid_state = self.net(hid_state, node_feats)
+            pred, hid_state = self.net(hid_state, node_feats, segment=s, draft=draft)
             loss = self.loss(pred, im_truth).mean()
 
             self.manual_backward(loss)
@@ -78,6 +72,7 @@ class HHRMLightning(pl.LightningModule):
             self.optimizers().step()
 
             hid_state = hid_state.detach()
+            draft = torch.sigmoid(pred.detach())
 
         ### Convert to probs
         pred = torch.sigmoid(pred)
@@ -95,25 +90,29 @@ class HHRMLightning(pl.LightningModule):
 
         node_feats, im_truth = batch
 
-        pred = self(node_feats)
-        loss = self.loss(pred, im_truth).mean()
+        preds = self(node_feats, return_segments=True)
+        loss = self.loss(preds[-1], im_truth).mean()
 
         ### Convert to probs
-        probs = torch.sigmoid(pred)
+        probs = [torch.sigmoid(pred) for pred in preds]
 
         logs = {
             "loss": loss,
-            "f1": metrics.f1_score(im_truth, probs, type="ind", d_feats=node_feats.shape[-1]).mean(0),
-            "precision": metrics.precision(im_truth, probs, type="ind", d_feats=node_feats.shape[-1]).mean(0),
-            "recall": metrics.recall(im_truth, probs, type="ind", d_feats=node_feats.shape[-1]).mean(0),
-            "mae": metrics.mae_cardinality(probs, im_truth),
-            "logit_mean": pred.mean(),
-            "logit_std": pred.std(),
-            "logit_min": pred.min(),
-            "logit_max": pred.max(),
+            "f1": metrics.f1_score(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
+            "precision": metrics.precision(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
+            "recall": metrics.recall(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
+            "mae": metrics.mae_cardinality(probs[-1], im_truth),
+            "logit_mean": preds[-1].mean(),
+            "logit_std": preds[-1].std(),
+            "logit_min": preds[-1].min(),
+            "logit_max": preds[-1].max(),
         }
+
+        for i, prob in enumerate(probs[:-1]):
+            logs.update({
+                f"f1_s{i}": metrics.f1_score(im_truth, prob, type="ind", d_feats=node_feats.shape[-1]).mean(0),
+            })
 
         self.log_dict({f"{k}/val":v for k,v in logs.items()})
 
         return loss
-    

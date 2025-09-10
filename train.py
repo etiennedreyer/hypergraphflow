@@ -4,7 +4,7 @@ from numpy.random import default_rng
 import torch
 from torch.utils.data import DataLoader
 import pytorch_lightning as lightning
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from utils.dataset import HyperGraphDataset
 import wandb
@@ -102,14 +102,18 @@ def get_model(config):
     return model
 
 
-def get_trainer(config, model_name, project_name, log=True):
+def get_trainer(config, model_name, project_name, log=True, resume_id=None):
 
+    logger = None
+    callbacks = []
     if log:
         ### Logger
         logger = WandbLogger(
             name=model_name,
             project=project_name,
             log_model=False,
+            id=resume_id,
+            resume="allow" if resume_id is not None else False,
         )
         run = logger.experiment
 
@@ -132,10 +136,12 @@ def get_trainer(config, model_name, project_name, log=True):
             mode='min',
             save_top_k=1,
         )
-        callbacks = [checkpoint_callback]
-    else:
-        logger = None
-        callbacks = []
+        callbacks.append(checkpoint_callback)
+
+        ### Scheduler
+        if 'scheduler' in config:
+            scheduler_callback = LearningRateMonitor(logging_interval='epoch')
+            callbacks.append(scheduler_callback)
 
     ### Training
     trainer = lightning.Trainer(
@@ -150,7 +156,7 @@ def get_trainer(config, model_name, project_name, log=True):
     return trainer
 
 
-def main(config, mode="train", checkpoint=None, overtrain=False):
+def main(config, mode="train", checkpoint=None, precision=None, resume=None, overtrain=False):
 
     ### Manually add sampler for refiner
     if 'refiner' in config['model']['name']:
@@ -165,6 +171,15 @@ def main(config, mode="train", checkpoint=None, overtrain=False):
     random.seed(seed)
     torch.cuda.manual_seed(seed)
     lightning.seed_everything(seed, workers=True)
+
+    ### Matmul precision
+    if precision is not None:
+        options = ['highest', 'high', 'medium']
+        if precision in options:
+            torch.set_float32_matmul_precision(precision)
+            print(f"Set matmul precision to {precision}")
+        else:
+            raise ValueError("Choose one of: ", options)
 
     ### Dataset
     ds, dls = get_dataset(config)
@@ -188,7 +203,7 @@ def main(config, mode="train", checkpoint=None, overtrain=False):
         model.load_state_dict(torch.load(checkpoint)['state_dict'])
 
     ### Trainer
-    trainer = get_trainer(config, model.name, ds.name, log=(mode == 'train'))
+    trainer = get_trainer(config, model.name, ds.name, log=(mode == 'train'), resume_id=resume)
 
     return trainer, model, ds, dls
 
@@ -213,6 +228,8 @@ if __name__ == "__main__":
     parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
     parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test", "flop"], help="Mode to run the script in")
     parser.add_argument("--checkpoint", "-ckpt", type=str, default=None, help="Path to the checkpoint file to load")
+    parser.add_argument("--precision", "-p", type=str, default=None, choices=[None, "highest", "high", "medium"], help="Matmul precision")
+    parser.add_argument("--resume", "-r", type=str, default=None, help="Resume from wandb run id")
     parser.add_argument("--overtrain", "-ot", default=False, action='store_true', help="Whether to use training dl for validation")
     args = parser.parse_args()
 
@@ -220,7 +237,11 @@ if __name__ == "__main__":
     config = get_config(args.config_train, args.config_model, args.config_dataset)
 
     ### Main
-    trainer, model, ds, dls = main(config, mode=args.mode, checkpoint=args.checkpoint, overtrain=args.overtrain)
+    trainer, model, ds, dls = main(config, mode=args.mode, 
+                                   checkpoint=args.checkpoint,
+                                   precision=args.precision,
+                                   resume=args.resume,
+                                   overtrain=args.overtrain)
 
     if args.mode == 'train':
         trainer.fit(model, dls['train'], dls['val'])

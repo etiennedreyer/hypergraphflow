@@ -5,6 +5,11 @@ num_node_features: &F 3
 num_edges: &K 42
 hidden_dim: &H 36
 
+### attention
+timestep_embedding: true
+time_dim: &T 8
+freq_dim: 64
+
 node_embedder:
     input_dim: *F # this gets overwritten in hhrm.py
     layers: []
@@ -13,6 +18,7 @@ node_embedder:
 
 node_CA_L:
     model_dim: *H
+    c_dim: *T
     num_heads: 3
     num_layers: 3
     gated: false
@@ -22,18 +28,13 @@ node_CA_L:
 
 edge_CA_H:
     model_dim: *H
+    c_dim: *T
     num_heads: 3
     num_layers: 5
     gated: false
     scaling: true
     activation: silu
     ffn_factor: 2
-
-incidence_predictor:
-    input_dim: *H
-    layers: [128, 64]
-    output_dim: *K
-    activation: relu
 
 indicator_predictor:
     input_dim: *H
@@ -45,3 +46,4 @@ hrm:
     iters_L: 3
     iters_H: 3
     segments: 4
+    use_draft: false
