@@ -18,12 +18,6 @@ class HHRMLightning(BaseLightning):
 
         self.net = HHRM(self.config)
 
-        self.loss = partial(metrics.LAP_loss, 
-                            loss_fn=partial(F.binary_cross_entropy_with_logits, 
-                                                pos_weight=torch.tensor(10.0)
-                                            ),
-                            )
-
         ### Need to implement deep supervision manually
         self.automatic_optimization = False
 

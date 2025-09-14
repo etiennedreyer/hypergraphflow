@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from numpy.random import default_rng
 
 import sys
@@ -18,7 +19,8 @@ class IRModel(BaseLightning):
                     self.config['num_edges'],
                     self.config['num_node_features'],
                     self.config['hidden_dim'],
-                    self.config['iters_total']
+                    self.config['iters_total'],
+                    return_logits=True,
             )
 
         self.name = self.config['name']
@@ -48,7 +50,7 @@ class IRModel(BaseLightning):
 
         for t in t_pre:
             preds, e_t, v_t, i_t = self.net(inputs, e_t, v_t, i_t, t_skip=t, t_bp=self.config['iters_bptt'])
-            loss_per_t = [metrics.LAP_loss(p, target, n=min(self.config['nray'], bs)).mean(0) for p in preds]
+            loss_per_t = [self.loss(p, target, n=min(self.config['nray'], bs)).mean(0) for p in preds]
             loss = sum(loss_per_t) / self.config['iters_bptt']
 
             self.manual_backward(loss)
@@ -60,7 +62,7 @@ class IRModel(BaseLightning):
         with torch.no_grad():
             logs = {
                 "loss": loss_per_t[-1],
-                "mae":  metrics.mae_cardinality(preds[-1], target),
+                "mae":  metrics.mae_cardinality(F.sigmoid(preds[-1]), target),
                 **{f"loss_at{i}": l for i,l in enumerate(loss_per_upd)},
             }
         self.log_dict({f"{k}/train":v for k,v in logs.items()})
@@ -70,7 +72,8 @@ class IRModel(BaseLightning):
     def eval_step(self, batch, batch_idx):
         inputs, target = batch
         pred = self(inputs)
-        loss = metrics.LAP_loss(pred, target, n=min(self.config['nray'], inputs.size(0)))
+        loss = self.loss(pred, target, n=min(self.config['nray'], inputs.size(0)))
+        pred = F.sigmoid(pred)
         logs = {
             "loss": loss.mean(0),
             "f1": metrics.f1_score(target, pred, type="ind", d_feats=self.config['num_node_features']).mean(0),
@@ -89,8 +92,3 @@ class IRModel(BaseLightning):
         logs = self.eval_step(batch, batch_idx)
         self.log_dict({f"{k}/test":v for k,v in logs.items()})
         return logs["loss"]
-        
-    def configure_optimizers(self):
-        parameters = filter(lambda p: p.requires_grad, self.parameters())
-        optimizer = torch.optim.Adam(parameters, lr=self.config['learning_rate'])
-        return optimizer

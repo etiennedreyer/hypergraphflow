@@ -132,5 +132,7 @@ class HyperGraphDataset:
             batch_size=self.batch_size if not self.sampler else 1,
             batch_sampler=self.sampler,
             collate_fn=self.collate_fn,
-            num_workers=dl_config['num_workers']
+            num_workers=dl_config['num_workers'],
+            pin_memory=True,
+            persistent_workers=True if dl_config['num_workers'] > 0 else False,
         )

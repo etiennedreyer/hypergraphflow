@@ -1,14 +1,10 @@
-model: hhrm
+model: refiner
 dataset: convex_hull
 
-optimizer: adam_atan2
-scheduler: {
-  "name": "cosine_warmup",
-  "warmup_epochs": 10
-}
-learning_rate: 1.0e-4
+optimizer: adam
+learning_rate: 3.0e-4
 num_epochs: 1000
-num_workers: &W 6
+num_workers: &W 8
 nray: 8
 seed: 123456
 accelerator: 'cuda'
