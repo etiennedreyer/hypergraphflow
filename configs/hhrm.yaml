@@ -47,3 +47,4 @@ hrm:
     iters_H: 3
     segments: 4
     use_draft: false
+    use_im_attn_mask: true

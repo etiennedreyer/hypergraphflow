@@ -7,6 +7,7 @@ sys.path.append("../../recurrently_predicting_hypergraphs/")
 from hypergraph_refiner import IterativeRefiner
 import metrics
 import misc
+from functools import partial
 
 from lights.base_lightning import BaseLightning
 
@@ -15,17 +16,22 @@ class IRModel(BaseLightning):
     def __init__(self, model_config, train_config):
         super().__init__(model_config, train_config)
 
+        self.return_logits = model_config.get('return_logits', False)
+
         self.net = IterativeRefiner(
                     self.config['num_edges'],
                     self.config['num_node_features'],
                     self.config['hidden_dim'],
                     self.config['iters_total'],
-                    return_logits=True,
+                    return_logits=self.return_logits,
             )
 
         self.name = self.config['name']
 
         self.automatic_optimization = False
+
+        if not self.return_logits:
+            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
 
         self.sampler = misc.IntegerPartitionSampler(
             self.config['iters_total']-self.config['iters_bptt']*self.config['blocks_bptt'],
@@ -59,10 +65,14 @@ class IRModel(BaseLightning):
             e_t, v_t, i_t = e_t.detach(), v_t.detach(), i_t.detach()
             loss_per_upd.append(loss.detach())
 
+        pred = preds[-1]
+        if self.return_logits:
+            pred = F.sigmoid(pred)
+
         with torch.no_grad():
             logs = {
                 "loss": loss_per_t[-1],
-                "mae":  metrics.mae_cardinality(F.sigmoid(preds[-1]), target),
+                "mae":  metrics.mae_cardinality(pred, target),
                 **{f"loss_at{i}": l for i,l in enumerate(loss_per_upd)},
             }
         self.log_dict({f"{k}/train":v for k,v in logs.items()})
@@ -73,7 +83,8 @@ class IRModel(BaseLightning):
         inputs, target = batch
         pred = self(inputs)
         loss = self.loss(pred, target, n=min(self.config['nray'], inputs.size(0)))
-        pred = F.sigmoid(pred)
+        if self.return_logits:
+            pred = F.sigmoid(pred)
         logs = {
             "loss": loss.mean(0),
             "f1": metrics.f1_score(target, pred, type="ind", d_feats=self.config['num_node_features']).mean(0),

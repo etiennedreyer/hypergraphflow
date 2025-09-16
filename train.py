@@ -70,11 +70,19 @@ def get_dataset(config):
 
 
 def get_model(config):
-    # Lightning instance
+
+    ### Ray
     num_ray = config.get('nray', 0)
     if num_ray > 0:
-        ray.init(num_cpus=num_ray, include_dashboard=False)
 
+        ### Set log dir with appropriate permissions to avoid ray's default 777
+        log_dir = f"/storage/agrp/dreyet/ray_logs/{os.environ.get('PBS_JOBID', 'local')}"
+        os.makedirs(log_dir, mode=0o755, exist_ok=True)
+        ray.init(num_cpus=num_ray, 
+                 _temp_dir=log_dir,
+                 include_dashboard=False)
+
+    ### Lightning
     if 'hgflow' in config['model']['name']:
         from lights.hgflow_lightning import HGFlowLightning
 
@@ -151,6 +159,7 @@ def get_trainer(config, model_name, project_name, log=True, resume_id=None):
         check_val_every_n_epoch=1,
         logger=logger,
         callbacks=callbacks,
+        # precision="16-mixed" if torch.cuda.is_available() else 32,
     )
 
     return trainer
@@ -219,6 +228,34 @@ def count_flops(model, dl):
     print(f"\nTotal FLOPs: {flops.total()}")
 
 
+def profile_model(config, model, dl):
+    from pytorch_lightning.profilers import PyTorchProfiler
+
+    profiler = PyTorchProfiler(
+        dirpath=".",
+        filename="profile_trace",
+        sort_by_key="cuda_time_total",
+        record_shapes=True
+    )
+
+    ### Temporary trainer for profiling
+    profiler_trainer = lightning.Trainer(
+        accelerator=config.get('accelerator', 'auto'),
+        devices=config.get('devices', [0]),
+        max_epochs=1,
+        limit_train_batches=100,
+        profiler=profiler,
+        logger=False,
+        callbacks=[],
+        # precision="16-mixed" if torch.cuda.is_available() else 32,
+    )
+
+    ### Profile training loop
+    profiler_trainer.fit(model, dl)
+
+    print(f"Profiling results saved to {profiler.dirpath}/{profiler.filename}.json")
+
+
 if __name__ == "__main__":
 
     ### Args
@@ -226,7 +263,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_train", "-ct", type=str, required=True, help="Path to the training config file")
     parser.add_argument("--config_model", "-cm", type=str, required=False, help="Path to the model config file")
     parser.add_argument("--config_dataset", "-cd", type=str, required=False, help="Path to the dataset config file")
-    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test", "flop"], help="Mode to run the script in")
+    parser.add_argument("--mode", "-m", type=str, default="train", choices=["train", "eval", "test", "flop", "profile"], help="Mode to run the script in")
     parser.add_argument("--checkpoint", "-ckpt", type=str, default=None, help="Path to the checkpoint file to load")
     parser.add_argument("--precision", "-p", type=str, default=None, choices=[None, "highest", "high", "medium"], help="Matmul precision")
     parser.add_argument("--resume", "-r", type=str, default=None, help="Resume from wandb run id")
@@ -237,7 +274,8 @@ if __name__ == "__main__":
     config = get_config(args.config_train, args.config_model, args.config_dataset)
 
     ### Main
-    trainer, model, ds, dls = main(config, mode=args.mode, 
+    trainer, model, ds, dls = main(config,
+                                   mode=args.mode,
                                    checkpoint=args.checkpoint,
                                    precision=args.precision,
                                    resume=args.resume,
@@ -249,5 +287,7 @@ if __name__ == "__main__":
         trainer.test(model, dls['test'])
     elif args.mode == 'flop':
         count_flops(model, dls['train'])
+    elif args.mode == 'profile':
+        profile_model(config, model, dls['train'])
     else:
         raise ValueError("Unknown mode:", args.mode)
