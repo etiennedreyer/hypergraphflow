@@ -38,7 +38,6 @@ class HHRM(nn.Module):
         self.iters_H = hrm_cfg['iters_H']
         self.segments = hrm_cfg['segments']
         self.use_draft = hrm_cfg.get('use_draft', False)
-        self.use_im_attn_mask = hrm_cfg.get('use_im_attn_mask', False)
 
         ### Initial, static hidden states
         self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
@@ -125,14 +124,6 @@ class HHRM(nn.Module):
                     activation=ind_pred_cfg['activation']
         )
 
-        if self.use_im_attn_mask:
-            if self.timestep_embedding:
-                ### Context-modulated coef with which to add inc. mat. to CA
-                self.im_attn_wgt_L = nn.Linear(self.CA_L[0].CA.c_dim, 1)
-                self.im_attn_wgt_H = nn.Linear(self.CA_H[0].CA.c_dim, 1)
-            else:
-                raise NotImplementedError("use_im_attn_mask requires timestep_embedding")
-
     def get_init_state(self):
         return HiddenState(z_L=self.z_L_init, z_H=self.z_H_init)
 
@@ -146,26 +137,6 @@ class HHRM(nn.Module):
             return t_emb
         else:
             return None
-
-    def convert_key_to_attn_mask(self, key_padding_mask, Nq=None):
-
-        if key_padding_mask is None:
-            return None
-
-        bs, Nk = key_padding_mask.shape
-
-        if Nq is None:
-            Nq = Nk # Assume self-attention
-
-        mask = torch.zeros((bs, Nq, Nk), device=key_padding_mask.device)
-
-        if key_padding_mask is not None:
-            if key_padding_mask.any():
-                add_mask = torch.zeros_like(key_padding_mask, dtype=torch.float)
-                add_mask.masked_fill_(key_padding_mask, float('-inf'))
-                mask = mask + add_mask.unsqueeze(1) # broadcast (B, 1, Nk) -> (B, Nq, Nk)
-
-        return mask
 
     def dot_prod_incidence(self, q, k):
         return (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
@@ -181,14 +152,6 @@ class HHRM(nn.Module):
             input_state = torch.nan_to_num(input_state, nan=0.0)
         else:
             node_mask = None
-
-        node_CA_mask_H = self.convert_key_to_attn_mask(node_mask, Nq=self.num_edges)
-        if self.use_im_attn_mask and (node_CA_mask_H is None):
-            node_CA_mask_H = torch.zeros((input_state.shape[0], self.num_edges, input_state.shape[1]), device=input_state.device)
-        node_CA_mask_L = None if node_CA_mask_H is None else node_CA_mask_H.transpose(2, 1) # (B, N, K)
-        if self.use_im_attn_mask:
-            node_CA_mask_H = node_CA_mask_H.repeat(self.CA_H[0].CA.num_heads, 1, 1) # (h*B, K, N)
-            node_CA_mask_L = node_CA_mask_L.repeat(self.CA_L[0].CA.num_heads, 1, 1) # (h*B, N, K)
 
         ### Edge mask
         if self.use_draft and (draft is not None):
@@ -219,17 +182,10 @@ class HHRM(nn.Module):
                         z_L = self.norm_L(z_L + input_state)
                         t_emb = self.get_time_emb(segment, iter_L, iter_H)
                         for block in self.CA_L:
-                            CA_mask = node_CA_mask_L
-                            if self.use_im_attn_mask:
-                                inc_t = self.dot_prod_incidence(q=z_L, k=z_H)
-                                inc_t = torch.cat([inc_t, torch.zeros_like(inc_t).repeat(self.CA_L[0].CA.num_heads - 1, 1, 1)], dim=0) # (h*B, N, K)
-                                wgt = self.im_attn_wgt_L(t_emb)
-                                CA_mask += wgt*inc_t
                             z_L = block(z_L, z_H,
                                         c=t_emb,
                                         key_padding_mask_SA=node_mask,
-                                        # key_padding_mask_CA=edge_mask
-                                        attn_mask_CA=CA_mask
+                                        key_padding_mask_CA=edge_mask
                                         )
 
                 if not last_iter_H:
@@ -237,17 +193,10 @@ class HHRM(nn.Module):
                     z_H = self.norm_H(z_H + edge_pos_emb)
                     t_emb = self.get_time_emb(segment, self.iters_L - 1, iter_H)
                     for block in self.CA_H:
-                        CA_mask = node_CA_mask_H
-                        if self.use_im_attn_mask:
-                            inc_t = self.dot_prod_incidence(q=z_H, k=z_L)
-                            inc_t = torch.cat([inc_t, torch.zeros_like(inc_t).repeat(self.CA_H[0].CA.num_heads - 1, 1, 1)], dim=0) # (h*B, K, N)
-                            wgt = self.im_attn_wgt_H(t_emb)
-                            CA_mask += wgt*inc_t
                         z_H = block(z_H, z_L,
                                     c=t_emb,
                                     key_padding_mask_SA=edge_mask,
-                                    # key_padding_mask_CA=node_mask
-                                    attn_mask_CA=CA_mask
+                                    key_padding_mask_CA=node_mask
                                     )
 
         assert not z_H.requires_grad and not z_L.requires_grad
@@ -256,33 +205,19 @@ class HHRM(nn.Module):
         z_L = self.norm_L(z_L + input_state)
         t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
         for block in self.CA_L:
-            CA_mask = node_CA_mask_L
-            if self.use_im_attn_mask:
-                inc_t = self.dot_prod_incidence(q=z_L, k=z_H)
-                inc_t = torch.cat([inc_t, torch.zeros_like(inc_t).repeat(self.CA_L[0].CA.num_heads - 1, 1, 1)], dim=0) # (h*B, N, K)
-                wgt = self.im_attn_wgt_L(t_emb)
-                CA_mask += wgt*inc_t
             z_L = block(z_L, z_H,
                          c=t_emb,
                          key_padding_mask_SA=node_mask,
-                        #  key_padding_mask_CA=edge_mask
-                         attn_mask_CA=CA_mask
+                         key_padding_mask_CA=edge_mask
                         )
 
         z_H = self.norm_H(z_H + edge_pos_emb)
         t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
         for block in self.CA_H:
-            CA_mask = node_CA_mask_H
-            if self.use_im_attn_mask:
-                inc_t = self.dot_prod_incidence(q=z_H, k=z_L)
-                inc_t = torch.cat([inc_t, torch.zeros_like(inc_t).repeat(self.CA_H[0].CA.num_heads - 1, 1, 1)], dim=0) # (h*B, K, N)
-                wgt = self.im_attn_wgt_H(t_emb)
-                CA_mask += wgt*inc_t
             z_H = block(z_H, z_L,
                          c=t_emb,
                          key_padding_mask_SA=edge_mask,
-                        #  key_padding_mask_CA=node_mask
-                         attn_mask_CA=CA_mask
+                         key_padding_mask_CA=node_mask
                         )
 
         ### prediction

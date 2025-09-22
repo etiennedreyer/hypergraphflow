@@ -20,7 +20,7 @@ node_CA_L:
     model_dim: *H
     c_dim: *T
     num_heads: 3
-    num_layers: 3
+    num_layers: 4
     gated: false
     scaling: true
     activation: silu
@@ -30,7 +30,7 @@ edge_CA_H:
     model_dim: *H
     c_dim: *T
     num_heads: 3
-    num_layers: 5
+    num_layers: 4
     gated: false
     scaling: true
     activation: silu
@@ -43,8 +43,7 @@ indicator_predictor:
     activation: relu
 
 hrm:
-    iters_L: 3
-    iters_H: 3
-    segments: 4
+    iters_L: 2
+    iters_H: 2
+    segments: 8
     use_draft: false
-    use_im_attn_mask: true
