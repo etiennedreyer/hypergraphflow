@@ -167,10 +167,10 @@ class HHRM(nn.Module):
         ### Hyperedge positional embedding
         edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
         edge_pos_emb = self.edge_embedder(edge_pos_idx)
-        z_H = z_H + edge_pos_emb
 
         ### Forward up to last iteration
         with torch.no_grad():
+            z_H = z_H + edge_pos_emb
             for iter_H in range(self.iters_H):
                 last_iter_H = (iter_H == self.iters_H - 1)
 

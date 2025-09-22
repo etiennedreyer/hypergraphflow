@@ -168,7 +168,9 @@ def get_trainer(config, model_name, project_name, log=True, resume_id=None):
 def main(config, mode="train", checkpoint=None, precision=None, resume=None, overtrain=False):
 
     ### Manually add sampler for refiner
-    if 'refiner' in config['model']['name']:
+    if ('refiner' in config['model']['name']) \
+        or ('particle_flow' in config['dataset']['name']): 
+        print("Manually adding sampler to dataloader configs")
         for split in ['train', 'val', 'test']:
             if f'dl_{split}' in config:
                 config[f'dl_{split}']['sampler'] = True

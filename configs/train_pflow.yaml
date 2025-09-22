@@ -1,0 +1,33 @@
+model: hhrm
+dataset: particle_flow
+
+optimizer: adam_atan2
+scheduler: {
+  "name": "cosine_warmup",
+  "warmup_epochs": 10
+}
+learning_rate: 1.0e-4
+num_epochs: 1000
+num_workers: &W 4
+nray: 0
+seed: 123456
+accelerator: 'cuda'
+devices: [0]
+
+dl_train:
+  total_size: 64
+  batch_size: 16
+  shuffle: true
+  num_workers: *W
+
+dl_val:
+  total_size: 16
+  batch_size: 16
+  shuffle: false
+  num_workers: *W
+
+dl_test:
+  total_size: 16
+  batch_size: 16
+  shuffle: false
+  num_workers: *W

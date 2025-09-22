@@ -34,6 +34,21 @@ class HyperGraphDataset:
             )
             self.name += "_spherical" if config['norm'] else "_normal"
 
+        ### Particle Flow
+        elif 'particle_flow' in self.name:
+
+            ds_kwargs = {
+                    'filename': config['filename'],
+                    'config_v': config,
+                    'reduce_ds': -1,
+                    'compute_incidence': True}
+
+            from hgpflow_v2.dataset.dataset_mini import PflowDatasetMini
+            self.dataset = PflowDatasetMini(**ds_kwargs)
+            self.dataset.n_points = self.dataset.n_nodes
+            self.dataset.max_facets = max(self.dataset.n_particles)
+
+
         ### Delaunay Triangulation
         elif 'delaunay_triangulation' in self.name:
             from delaunay_data import DelaunayTriangulationData
@@ -49,9 +64,10 @@ class HyperGraphDataset:
         self.max_nodes = max(self.dataset.n_points)
         self.max_edges = self.dataset.max_facets
 
-        self.name += f"_{config['D']}D"
-        self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
         self.in_feats = config['D']
+        if 'particle_flow' not in self.name:
+            self.name += f"_{config['D']}D"
+            self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
 
         ### overwrite max cardinality
         if 'num_edges' in config:
@@ -85,6 +101,13 @@ class HyperGraphDataset:
             self.sampler = BucketSampler(dataset, self.batch_size, 
                                     n_points,
                                     shuffle=self.shuffle)
+            
+        elif 'particle_flow' in self.name:
+
+            from hgpflow_v2.dataset.dataset_mini import PflowSamplerMini
+            self.sampler = PflowSamplerMini(np.array(n_points),
+                                    batch_size=self.batch_size, 
+                                    remove_idxs=True) # TODO: check remove_idxs
 
     def get_collate_fn(self):
 
@@ -92,6 +115,24 @@ class HyperGraphDataset:
             from convex_hull_dataset import get_collate_fn
             self.collate_fn = get_collate_fn(self.max_edges, 
                                                 add_indicator=self.add_indicator)
+
+        elif 'particle_flow' in self.name:
+            from hgpflow_v2.dataset.dataset_mini import collate_fn_mini
+
+            def custom_collate_fn(batch):
+                batch = collate_fn_mini(batch)
+                inc = batch['incidence_truth']
+                ind = batch['indicator_truth']
+                # ### use topoclusters only (remove tracks)
+                # num_tracks = batch['track'].size(1)
+                # inc = inc[:, :, num_tracks:]
+                # ind = ind[:, num_tracks:]
+                # ### check if any particle has no hits
+                # no_hits_mask = (inc.sum(dim=1) == 0).all(dim=1)
+                im = torch.cat([inc, ind.unsqueeze(-1)], dim=-1)
+                return batch['node']['skip_feat0'], im
+
+            self.collate_fn = custom_collate_fn
 
         if self.pad:
             base_collate_fn = self.collate_fn
