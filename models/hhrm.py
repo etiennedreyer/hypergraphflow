@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from models.attention import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
@@ -31,6 +32,7 @@ class HHRM(nn.Module):
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
+        self.output_norm = self.config.get('output_norm', None)
 
         ### Hierarchical reasoning parameters
         hrm_cfg = self.config['hrm']
@@ -141,6 +143,18 @@ class HHRM(nn.Module):
     def dot_prod_incidence(self, q, k):
         return (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
 
+    def normalize_output(self, im):
+        if self.output_norm == 'sigmoid':
+            im = torch.sigmoid(im)
+        elif self.output_norm == 'softmax':
+            im = torch.cat([
+                F.softmax(im[..., :-1], dim=-1),
+                torch.sigmoid(im[..., -1:])
+            ], dim=-1)
+        elif self.output_norm is not None:
+            raise ValueError(f"Unknown output_norm {self.output_norm}")
+        return im
+
     def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int,draft=None):
 
         z_L = hid_state.z_L
@@ -224,6 +238,9 @@ class HHRM(nn.Module):
         inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
+
+        ### normalization
+        im = self.normalize_output(im)
 
         ### new state
         state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())

@@ -1,0 +1,178 @@
+name: particle_flow_jet
+filename: [
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_20_100kseg_bw100.0.root",
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_21_100kseg_bw100.0.root",
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_22_100kseg_bw100.0.root"
+]
+
+D: 14
+
+detector: COCOA
+
+max_particles: 32
+dataset_type: mini
+
+features:
+    track_feat0_vars: [
+        'pt', 'eta', 'cosphi', 'sinphi', 'd0', 'z0',
+        'eta_layer_0', 'eta_layer_1', 'eta_layer_2', 'eta_layer_3', 'eta_layer_4', 'eta_layer_5',
+        'cosphi_layer_0', 'cosphi_layer_1', 'cosphi_layer_2', 'cosphi_layer_3', 'cosphi_layer_4', 'cosphi_layer_5',
+        'sinphi_layer_0', 'sinphi_layer_1', 'sinphi_layer_2', 'sinphi_layer_3', 'sinphi_layer_4', 'sinphi_layer_5']
+    topo_feat0_vars: [
+        'e', 'eta', 'rho', 'cosphi', 'sinphi',         
+        'sigma_eta', 'sigma_phi', 'em_frac']
+    node_skip_feat0_vars: {
+        'track': [pt  , null, null, eta, cosphi, sinphi, d0  , z0  , eta_int, cosphi_int, sinphi_int, null     , null     , null   ],
+        'topo' : [null, e   , rho , eta, cosphi, sinphi, null, null, null   , null      , null      , sigma_eta, sigma_phi, em_frac]
+    }
+
+
+data_loading:
+    branches_to_read:
+        track_vars: [
+            'track_pt', 'track_eta', 'track_phi', 'track_d0', 'track_z0', 
+            'track_eta_int', 'track_phi_int',
+            "track_eta_layer_0", "track_eta_layer_1", "track_eta_layer_2", "track_eta_layer_3", "track_eta_layer_4", "track_eta_layer_5",
+            "track_phi_layer_0", "track_phi_layer_1", "track_phi_layer_2", "track_phi_layer_3", "track_phi_layer_4", "track_phi_layer_5",
+            'track_particle_idx'] # 'track_to_cell_src', 'track_to_cell_dst']
+        topo_vars: [
+            'topo_eta', 'topo_phi', 'topo_e', 'topo_rho', 
+            'topo_sigma_eta', 'topo_sigma_phi', 
+            'topo_ecal_e', 'topo_hcal_e',
+            'topo2particle_topo_idx', 'topo2particle_particle_idx', 'topo2particle_energy']
+        particle_vars: [
+            'particle_pt', 'particle_eta', 'particle_phi', 'particle_pdgid', 'particle_e', 'particle_track_idx']
+        event_vars: ['eventNumber']
+
+    branches_rename: {
+        'track_pt': 'track_pt_raw',
+        'track_eta': 'track_eta_raw',
+        'topo_e': 'topo_e_raw',
+        'topo_eta': 'topo_eta_raw',
+        'topo_ecal_e': 'topo_ecal_e_raw',
+        'topo_hcal_e': 'topo_hcal_e_raw',
+        'particle_pt': 'particle_pt_raw',
+        'particle_e': 'particle_e_raw',
+        'particle_eta': 'particle_eta_raw',
+
+        'topo_particle_energies': 'topo_particle_es',
+        'eventNumber': 'event_number'}
+
+
+data_processing:
+
+    vars_sin_cos: [
+        'track_phi', 'track_phi_int', 'topo_phi',
+        'track_phi_layer_0', 'track_phi_layer_1', 'track_phi_layer_2', 'track_phi_layer_3', 'track_phi_layer_4', 'track_phi_layer_5']
+    vars_sin_cos_og_delete: [
+        'track_phi_layer_0', 'track_phi_layer_1', 'track_phi_layer_2', 'track_phi_layer_3', 'track_phi_layer_4', 'track_phi_layer_5']
+
+    vars_to_transform: {
+        'track_pt_raw': 'pt',
+        'track_eta_raw': 'eta',
+        'track_d0': 'd0',
+        'track_z0': 'z0',
+
+        'track_eta_layer_0': 'eta',
+        'track_eta_layer_1': 'eta',
+        'track_eta_layer_2': 'eta',
+        'track_eta_layer_3': 'eta',
+        'track_eta_layer_4': 'eta',
+        'track_eta_layer_5': 'eta',
+
+        'topo_e_raw': 'e',
+        'topo_eta_raw': 'eta',
+        'topo_rho': 'rho',
+        'topo_sigma_eta': 'sigma_eta',
+        'topo_sigma_phi': 'sigma_phi',
+        'topo_ecal_e_raw': 'e',
+        'topo_hcal_e_raw': 'e',
+
+        'particle_pt_raw': 'pt',
+        'particle_e_raw': 'e',
+        'particle_eta_raw': 'eta'
+    }
+
+
+getitem_retun:
+    particle_vars: [
+        'pt', 'pt_raw', 'eta', 'eta_raw',
+        'e', 'e_raw',
+        'phi', 'class']
+    event_vars: ['eventNumber']
+    additional_vars: {
+        'track': ['pt', 'pt_raw', 'eta', 'phi'],
+        'topo': ['e_raw', 'eta_raw', 'phi', 'em_frac'],
+    }
+
+
+
+transformation_dict:
+    eta: {
+        'transformation': null,
+        'scale_mode': 'min_max',
+        'min': -3, 'max': 3, 'range': [-1,1]}
+
+    rho: {
+        'transformation': null,
+        'scale_mode': 'min_max',
+        'mean': 1890.936, 'std': 469.217,
+        'min': 1547.056, 'max': 3824.707, 'range': [-1,1]}
+
+    x: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': -0.167, 'std': 913.797,
+        'min': -3796.16, 'max': 3796.16, 'range': [-1,1]}
+
+    y: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0.1, 'std': 913.476,
+        'min': -3796.16, 'max': 3796.16, 'range': [-1,1]}
+
+    z: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': -51.95, 'std': 3027.524,
+        'min': -5504.766, 'max': 5504.766, 'range': [-1,1]}
+
+    pt: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 1.608, 'std': 0.728,
+        'min': 0.962, 'max': 15.619, 'range': [-1,1]}
+
+    e: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.289, 'std': 0.375,
+        'min': 0, 'max': 33.742, 'range': [-1,1]}
+
+    sigma_eta: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.234, 'std': 0.032,
+        'min': 0.224, 'max': 0.833, 'range': [-1,1]}
+
+    sigma_phi: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.237, 'std': 0.037,
+        'min': 0.224, 'max': 0.905, 'range': [-1,1]}
+
+    d0: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0, 'std': 0.112,
+        'min': -16.687, 'max': 16.908, 'range': [-1,1]}
+
+    z0: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0, 'std': 0.172,
+        'min': -77.066, 'max': 80.399, 'range': [-1,1]}

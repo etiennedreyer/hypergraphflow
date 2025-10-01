@@ -1,39 +1,52 @@
+from xml.parsers.expat import model
+import numpy as np
 import torch
 import torch.nn.functional as F
 from numpy.random import default_rng
 
 import sys
-sys.path.append("../../recurrently_predicting_hypergraphs/")
-from hypergraph_refiner import IterativeRefiner
-import metrics
-import misc
+from models.hypergraph_refiner import IterativeRefiner
 from functools import partial
 
 from lights.base_lightning import BaseLightning
+import utils.metrics as metrics
+
+
+def partitionfunc(n,k,l=1):
+    '''
+    n is the integer to partition, k is the length of partitions, l is the min partition element size
+    Adapted from https://stackoverflow.com/questions/18503096/python-integer-partitioning-with-given-k-partitions
+    '''
+    if k < 1:
+        return
+    if k == 1:
+        if n >= l:
+            yield (n,)
+        return
+    for i in range(l,n+1):
+        for result in partitionfunc(n-i,k-1,i):
+            yield (i,)+result
+
+class IntegerPartitionSampler:
+    def __init__(self, n, k, rng):
+        self.partitions = np.array(list(partitionfunc(n, k, 0)))
+        self.rng = rng
+
+    def __call__(self):
+        return self.rng.permutation(self.rng.choice(self.partitions))
 
 
 class IRModel(BaseLightning):
     def __init__(self, model_config, train_config):
         super().__init__(model_config, train_config)
 
-        self.return_logits = model_config.get('return_logits', False)
-
-        self.net = IterativeRefiner(
-                    self.config['num_edges'],
-                    self.config['num_node_features'],
-                    self.config['hidden_dim'],
-                    self.config['iters_total'],
-                    return_logits=self.return_logits,
-            )
+        self.net = IterativeRefiner(self.config)
 
         self.name = self.config['name']
 
         self.automatic_optimization = False
 
-        if not self.return_logits:
-            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
-
-        self.sampler = misc.IntegerPartitionSampler(
+        self.sampler = IntegerPartitionSampler(
             self.config['iters_total']-self.config['iters_bptt']*self.config['blocks_bptt'],
             self.config['blocks_bptt'],
             default_rng(self.config['seed'])
@@ -66,7 +79,7 @@ class IRModel(BaseLightning):
             loss_per_upd.append(loss.detach())
 
         pred = preds[-1]
-        if self.return_logits:
+        if self.net.output_norm is None:
             pred = F.sigmoid(pred)
 
         with torch.no_grad():
@@ -83,13 +96,16 @@ class IRModel(BaseLightning):
         inputs, target = batch
         pred = self(inputs)
         loss = self.loss(pred, target, n=min(self.config['nray'], inputs.size(0)))
-        if self.return_logits:
+        if self.net.output_norm is None:
             pred = F.sigmoid(pred)
+
+        d_feats = min(inputs.shape[-1], 3) ### TODO softcode this in config.
+
         logs = {
             "loss": loss.mean(0),
-            "f1": metrics.f1_score(target, pred, type="ind", d_feats=self.config['num_node_features']).mean(0),
-            "precision": metrics.precision(target, pred, type="ind", d_feats=self.config['num_node_features']).mean(0),
-            "recall": metrics.recall(target, pred, type="ind", d_feats=self.config['num_node_features']).mean(0),
+            "f1": metrics.f1_score(target, pred, type="ind", d_feats=d_feats).mean(0),
+            "precision": metrics.precision(target, pred, type="ind", d_feats=d_feats).mean(0),
+            "recall": metrics.recall(target, pred, type="ind", d_feats=d_feats).mean(0),
             "mae": metrics.mae_cardinality(pred, target)
         }
         return logs

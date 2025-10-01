@@ -1,0 +1,416 @@
+name: particle_flow
+filename: [
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_1_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_2_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_3_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_4_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_5_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_6_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_7_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_8_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_9_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_10_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_11_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_12_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_13_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_14_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_15_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_16_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_17_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_18_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_19_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_20_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_21_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_22_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_23_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_24_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_25_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_26_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_27_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_28_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_29_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_30_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_31_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_32_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_33_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_34_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_35_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_36_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_37_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_38_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_39_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_40_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_41_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_42_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_43_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_44_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_45_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_46_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_47_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_48_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_49_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_50_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_51_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_52_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_53_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_54_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_55_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_56_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_57_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_58_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_59_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_60_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_61_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_62_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_63_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_64_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_65_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_66_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_67_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_68_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_69_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_70_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_71_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_72_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_73_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_74_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_75_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_76_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_77_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_78_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_79_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_80_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_81_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_82_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_83_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_84_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_85_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_86_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_87_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_88_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_89_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_90_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_91_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_92_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_93_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_94_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_95_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_96_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_97_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_98_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_99_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_100_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_101_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_102_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_103_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_104_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_105_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_106_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_107_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_108_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_109_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_110_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_111_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_112_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_113_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_114_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_115_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_116_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_117_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_118_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_119_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_120_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_121_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_122_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_123_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_124_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_125_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_126_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_127_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_128_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_129_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_130_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_131_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_132_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_133_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_134_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_135_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_136_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_137_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_138_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_139_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_140_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_141_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_142_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_143_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_144_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_145_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_146_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_147_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_148_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_149_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_150_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_151_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_152_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_153_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_154_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_155_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_156_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_157_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_158_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_159_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_160_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_161_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_162_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_163_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_164_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_165_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_166_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_167_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_168_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_169_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_170_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_171_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_172_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_173_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_174_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_175_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_176_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_177_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_178_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_179_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_180_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_181_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_182_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_183_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_184_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_185_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_186_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_187_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_188_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_189_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_190_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_191_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_192_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_193_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_194_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_195_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_196_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_197_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_198_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_199_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_200_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_201_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_202_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_203_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_204_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_205_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_206_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_207_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_208_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_209_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_211_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_212_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_213_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_214_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_215_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_216_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_217_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_218_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_219_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_220_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_221_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_222_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_223_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_224_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_225_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_226_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_227_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_228_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_229_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_230_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_231_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_232_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_233_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_234_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_235_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_236_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_237_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_238_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_239_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_240_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_241_seg_bw-1.root",
+        "/storage/agrp/dreyet/PFlow/samples/dijet/Ntuples_dijet_noID_withSmearing_newpflow_15122023/new_train_val_test_files/train_skim_cocoa_dijet_242_seg_bw-1.root",
+    ]
+
+D: 14
+
+detector: COCOA
+
+max_particles: 205
+dataset_type: mini
+
+features:
+    track_feat0_vars: [
+        'pt', 'eta', 'cosphi', 'sinphi', 'd0', 'z0',
+        'eta_layer_0', 'eta_layer_1', 'eta_layer_2', 'eta_layer_3', 'eta_layer_4', 'eta_layer_5',
+        'cosphi_layer_0', 'cosphi_layer_1', 'cosphi_layer_2', 'cosphi_layer_3', 'cosphi_layer_4', 'cosphi_layer_5',
+        'sinphi_layer_0', 'sinphi_layer_1', 'sinphi_layer_2', 'sinphi_layer_3', 'sinphi_layer_4', 'sinphi_layer_5']
+    topo_feat0_vars: [
+        'e', 'eta', 'rho', 'cosphi', 'sinphi',         
+        'sigma_eta', 'sigma_phi', 'em_frac']
+    node_skip_feat0_vars: {
+        'track': [pt  , null, null, eta, cosphi, sinphi, d0  , z0  , eta_int, cosphi_int, sinphi_int, null     , null     , null   ],
+        'topo' : [null, e   , rho , eta, cosphi, sinphi, null, null, null   , null      , null      , sigma_eta, sigma_phi, em_frac]
+    }
+
+
+data_loading:
+    branches_to_read:
+        track_vars: [
+            'track_pt', 'track_eta', 'track_phi', 'track_d0', 'track_z0', 
+            'track_eta_int', 'track_phi_int',
+            "track_eta_layer_0", "track_eta_layer_1", "track_eta_layer_2", "track_eta_layer_3", "track_eta_layer_4", "track_eta_layer_5",
+            "track_phi_layer_0", "track_phi_layer_1", "track_phi_layer_2", "track_phi_layer_3", "track_phi_layer_4", "track_phi_layer_5",
+            'track_particle_idx'] # 'track_to_cell_src', 'track_to_cell_dst']
+        topo_vars: [
+            'topo_eta', 'topo_phi', 'topo_e', 'topo_rho', 
+            'topo_sigma_eta', 'topo_sigma_phi', 
+            'topo_ecal_e', 'topo_hcal_e',
+            'topo2particle_topo_idx', 'topo2particle_particle_idx', 'topo2particle_energy']
+        particle_vars: [
+            'particle_pt', 'particle_eta', 'particle_phi', 'particle_pdgid', 'particle_e', 'particle_track_idx']
+        event_vars: ['eventNumber']
+
+    branches_rename: {
+        'track_pt': 'track_pt_raw',
+        'track_eta': 'track_eta_raw',
+        'topo_e': 'topo_e_raw',
+        'topo_eta': 'topo_eta_raw',
+        'topo_ecal_e': 'topo_ecal_e_raw',
+        'topo_hcal_e': 'topo_hcal_e_raw',
+        'particle_pt': 'particle_pt_raw',
+        'particle_e': 'particle_e_raw',
+        'particle_eta': 'particle_eta_raw',
+
+        'topo_particle_energies': 'topo_particle_es',
+        'eventNumber': 'event_number'}
+
+
+data_processing:
+
+    vars_sin_cos: [
+        'track_phi', 'track_phi_int', 'topo_phi',
+        'track_phi_layer_0', 'track_phi_layer_1', 'track_phi_layer_2', 'track_phi_layer_3', 'track_phi_layer_4', 'track_phi_layer_5']
+    vars_sin_cos_og_delete: [
+        'track_phi_layer_0', 'track_phi_layer_1', 'track_phi_layer_2', 'track_phi_layer_3', 'track_phi_layer_4', 'track_phi_layer_5']
+
+    vars_to_transform: {
+        'track_pt_raw': 'pt',
+        'track_eta_raw': 'eta',
+        'track_d0': 'd0',
+        'track_z0': 'z0',
+
+        'track_eta_layer_0': 'eta',
+        'track_eta_layer_1': 'eta',
+        'track_eta_layer_2': 'eta',
+        'track_eta_layer_3': 'eta',
+        'track_eta_layer_4': 'eta',
+        'track_eta_layer_5': 'eta',
+
+        'topo_e_raw': 'e',
+        'topo_eta_raw': 'eta',
+        'topo_rho': 'rho',
+        'topo_sigma_eta': 'sigma_eta',
+        'topo_sigma_phi': 'sigma_phi',
+        'topo_ecal_e_raw': 'e',
+        'topo_hcal_e_raw': 'e',
+
+        'particle_pt_raw': 'pt',
+        'particle_e_raw': 'e',
+        'particle_eta_raw': 'eta'
+    }
+
+
+getitem_retun:
+    particle_vars: [
+        'pt', 'pt_raw', 'eta', 'eta_raw',
+        'e', 'e_raw',
+        'phi', 'class']
+    event_vars: ['eventNumber']
+    additional_vars: {
+        'track': ['pt', 'pt_raw', 'eta', 'phi'],
+        'topo': ['e_raw', 'eta_raw', 'phi', 'em_frac'],
+    }
+
+
+
+transformation_dict:
+    eta: {
+        'transformation': null,
+        'scale_mode': 'min_max',
+        'min': -3, 'max': 3, 'range': [-1,1]}
+
+    rho: {
+        'transformation': null,
+        'scale_mode': 'min_max',
+        'mean': 1890.936, 'std': 469.217,
+        'min': 1547.056, 'max': 3824.707, 'range': [-1,1]}
+
+    x: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': -0.167, 'std': 913.797,
+        'min': -3796.16, 'max': 3796.16, 'range': [-1,1]}
+
+    y: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0.1, 'std': 913.476,
+        'min': -3796.16, 'max': 3796.16, 'range': [-1,1]}
+
+    z: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': -51.95, 'std': 3027.524,
+        'min': -5504.766, 'max': 5504.766, 'range': [-1,1]}
+
+    pt: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 1.608, 'std': 0.728,
+        'min': 0.962, 'max': 15.619, 'range': [-1,1]}
+
+    e: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.289, 'std': 0.375,
+        'min': 0, 'max': 33.742, 'range': [-1,1]}
+
+    sigma_eta: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.234, 'std': 0.032,
+        'min': 0.224, 'max': 0.833, 'range': [-1,1]}
+
+    sigma_phi: {
+        'transformation': 'pow(x,m)',
+        'm': 0.5,
+        'scale_mode': 'min_max',
+        'mean': 0.237, 'std': 0.037,
+        'min': 0.224, 'max': 0.905, 'range': [-1,1]}
+
+    d0: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0, 'std': 0.112,
+        'min': -16.687, 'max': 16.908, 'range': [-1,1]}
+
+    z0: {
+        'transformation': null,
+        'scale_mode': 'standard',
+        'mean': 0, 'std': 0.172,
+        'min': -77.066, 'max': 80.399, 'range': [-1,1]}

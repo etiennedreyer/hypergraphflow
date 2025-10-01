@@ -4,6 +4,7 @@ import sys
 import torch
 import torch.nn.functional as F
 sys.path.append("../recurrently_predicting_hypergraphs/")
+sys.path.append("../HGPflow/")
 from torch.utils.data import DataLoader, Subset
 
 class HyperGraphDataset:
@@ -46,7 +47,7 @@ class HyperGraphDataset:
             from hgpflow_v2.dataset.dataset_mini import PflowDatasetMini
             self.dataset = PflowDatasetMini(**ds_kwargs)
             self.dataset.n_points = self.dataset.n_nodes
-            self.dataset.max_facets = max(self.dataset.n_particles)
+            self.dataset.max_facets = self.dataset.max_particles
 
 
         ### Delaunay Triangulation

@@ -1,10 +1,11 @@
 import torch
+import torch.nn.functional as F
 import pytorch_lightning as pl
 import yaml
 
 import sys
-sys.path.append("../../recurrently_predicting_hypergraphs/")
-import metrics
+import utils.metrics as metrics
+from functools import partial
 
 class BaseLightning(pl.LightningModule):
 
@@ -25,7 +26,21 @@ class BaseLightning(pl.LightningModule):
 
         self.config = {**model_config, **train_config}
         self.name = self.config['name']
-        self.loss = metrics.LAP_loss
+
+        if 'particle_flow' in self.config['dataset']['name']:
+            self.config['output_norm'] = 'softmax'
+        
+        if self.config.get('output_norm', None) is None:
+            self.loss = metrics.LAP_loss # default is BCE with logits
+            print("Using BCE with logits loss (assumes logits output)")
+        elif self.config['output_norm'] == 'sigmoid':
+            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
+            print("Using BCE loss (assumes sigmoid on output)")
+        elif self.config['output_norm'] == 'softmax':
+            self.loss = partial(metrics.LAP_loss, loss_fn=metrics.kld_plus_ind_loss)
+            print("Using KLD incidence and BCE indicator loss (assumes softmax on output)")
+        else:
+            raise ValueError(f"Unknown output_norm {self.config['output_norm']}")
 
     def configure_optimizers(self):
 

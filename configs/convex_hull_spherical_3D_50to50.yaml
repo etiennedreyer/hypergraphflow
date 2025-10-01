@@ -1,0 +1,4 @@
+name: 'convex_hull'
+D: 3
+N: [50, 51]
+norm: true

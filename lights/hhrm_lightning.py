@@ -1,14 +1,11 @@
 import torch
 
-import sys
-sys.path.append("../../recurrently_predicting_hypergraphs/")
-import metrics
-
 import torch.nn.functional as F
 from functools import partial
 
 from models.hhrm import HHRM
 from lights.base_lightning import BaseLightning
+import utils.metrics as metrics
 
 
 class HHRMLightning(BaseLightning):
@@ -35,11 +32,9 @@ class HHRMLightning(BaseLightning):
 
         hid_state = self.net.get_init_state()
         preds = []
-        draft = None
         for s in range(self.net.segments):
-            pred, hid_state = self.net(hid_state, node_feats, segment=s, draft=draft)
+            pred, hid_state = self.net(hid_state, node_feats, segment=s)
             preds.append(pred)
-            draft = torch.sigmoid(pred.detach())
 
         if return_segments:
             return preds
@@ -53,23 +48,22 @@ class HHRMLightning(BaseLightning):
         hid_state = self.net.get_init_state()
 
         ### Deep Supervision
-        draft = None
         for s in range(self.net.segments):
 
             self.optimizers().zero_grad()
 
-            pred, hid_state = self.net(hid_state, node_feats, segment=s, draft=draft)
-            loss = self.loss(pred, im_truth).mean()
+            pred, hid_state = self.net(hid_state, node_feats, segment=s)
+            loss = self.loss(pred, im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
 
             self.manual_backward(loss)
-            self.clip_gradients(self.optimizers(), gradient_clip_val=1.0, gradient_clip_algorithm="norm")
+            self.clip_gradients(self.optimizers(), gradient_clip_val=1.0, gradient_clip_algorithm="norm") ### TODO check if this is still helpful
             self.optimizers().step()
 
             hid_state = hid_state.detach()
-            draft = torch.sigmoid(pred.detach())
 
         ### Convert to probs
-        pred = torch.sigmoid(pred)
+        if self.net.output_norm is None:
+            pred = torch.sigmoid(pred)
 
         with torch.no_grad():
             logs = {
@@ -85,26 +79,31 @@ class HHRMLightning(BaseLightning):
         node_feats, im_truth = batch
 
         preds = self(node_feats, return_segments=True)
-        loss = self.loss(preds[-1], im_truth).mean()
+        loss = self.loss(preds[-1], im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
 
         ### Convert to probs
-        probs = [torch.sigmoid(pred) for pred in preds]
+        if self.net.output_norm is None:
+            probs = [torch.sigmoid(pred) for pred in preds]
+        else:
+            probs = preds
+
+        d_feats = min(node_feats.shape[-1], 3) ### TODO softcode this in config.
 
         logs = {
             "loss": loss,
-            "f1": metrics.f1_score(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
-            "precision": metrics.precision(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
-            "recall": metrics.recall(im_truth, probs[-1], type="ind", d_feats=node_feats.shape[-1]).mean(0),
+            "f1": metrics.f1_score(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
+            "precision": metrics.precision(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
+            "recall": metrics.recall(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
             "mae": metrics.mae_cardinality(probs[-1], im_truth),
-            "logit_mean": preds[-1].mean(),
-            "logit_std": preds[-1].std(),
-            "logit_min": preds[-1].min(),
-            "logit_max": preds[-1].max(),
+            # "logit_mean": preds[-1].mean(),
+            # "logit_std": preds[-1].std(),
+            # "logit_min": preds[-1].min(),
+            # "logit_max": preds[-1].max(),
         }
 
         for i, prob in enumerate(probs[:-1]):
             logs.update({
-                f"f1_s{i}": metrics.f1_score(im_truth, prob, type="ind", d_feats=node_feats.shape[-1]).mean(0),
+                f"f1_s{i}": metrics.f1_score(im_truth, prob, type="ind", d_feats=d_feats).mean(0),
             })
 
         self.log_dict({f"{k}/val":v for k,v in logs.items()})
