@@ -99,7 +99,7 @@ class HypergraphRefiner(nn.Module):
         e_ind_logits = self.edge_indicator(e_t)
 
         if self.output_norm == 'softmax':
-            i_t = F.softmax(i_t_logits, dim=2)
+            i_t = F.softmax(i_t_logits, dim=1)
         elif self.output_norm == 'sigmoid':
             i_t = F.sigmoid(i_t_logits)
         e_ind = F.sigmoid(e_ind_logits)

@@ -148,7 +148,7 @@ class HHRM(nn.Module):
             im = torch.sigmoid(im)
         elif self.output_norm == 'softmax':
             im = torch.cat([
-                F.softmax(im[..., :-1], dim=-1),
+                F.softmax(im[..., :-1], dim=1),
                 torch.sigmoid(im[..., -1:])
             ], dim=-1)
         elif self.output_norm is not None:
