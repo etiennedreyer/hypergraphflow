@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import yaml
-from models.attention import DecoderBlock, ContextProjector
+from hypergraphflow.models.transformer import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
 from dataclasses import dataclass
@@ -83,6 +83,10 @@ class HHRM(nn.Module):
         self.CA_L = nn.ModuleList([
                             DecoderBlock(
                                 model_dim=CA_L_cfg['model_dim'],
+                                attn_type=CA_L_cfg.get('attn_type', 'torch'),
+                                attn_bias=CA_L_cfg.get('attn_bias', False),
+                                attn_dropout=CA_L_cfg.get('attn_dropout', 0.0),
+                                attn_do_qkv_norm=CA_L_cfg.get('attn_do_qkv_norm', True),
                                 num_heads=CA_L_cfg['num_heads'],
                                 activation=CA_L_cfg['activation'],
                                 c_dim=CA_L_cfg['c_dim'] if self.timestep_embedding else None,

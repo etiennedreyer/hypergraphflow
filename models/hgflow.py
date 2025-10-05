@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import yaml
-from models.attention import SelfAttentionLayer, CrossAttentionLayer, DualUpdateBlock, DecoderBlock
+from hypergraphflow.models.transformer import SelfAttentionLayer, CrossAttentionLayer, DualUpdateBlock, DecoderBlock
 from models.time import TimestepEmbedder
 from models.mlp import MLP
 import math
