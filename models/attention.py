@@ -1,252 +1,356 @@
 import torch
-import torch.nn as nn
-from models.mlp import MLP
+from torch import nn
+import torch.nn.functional as F
+from .utils import padded_to_packed, packed_to_padded
+from torch.nn.attention.flex_attention import flex_attention
 
 
-class ContextProjector(nn.Module):
-    def __init__(self, c_dim, model_dim, gated, activation="silu"):
-        super().__init__()
-        self.gated = gated
-        self.out_factor = 2 * (1 + 1 + int(gated))  # scale, shift, (gate) x2
-        self.c_proj = nn.Sequential(
-            nn.SiLU() if activation == "silu" else nn.ReLU(),
-            nn.Linear(c_dim, model_dim * self.out_factor)
-        )
-        ### Initial scale, shift, gate are 0
-        nn.init.constant_(self.c_proj[1].weight, 0)
-        nn.init.constant_(self.c_proj[1].bias, 0)
-
-    def forward(self, c):
-        affine_params = self.c_proj(c).unsqueeze(1).chunk(self.out_factor, dim=-1)
-        return affine_params
 
 
-class AttentionLayer(nn.Module):
-    def __init__(
-        self,
-        kind: str, # "self" or "cross"
-        model_dim: int,
-        c_dim: int = None,
-        num_heads: int = 4,
-        batch_first: bool = True,
-        activation: str = "silu",
-        gated: bool = False,
-        scaling: bool = False,
-        ffn_factor: int = 2,
-        c_proj: nn.Module = None,
+def padded_to_packed(seq, mask):
+    # mask: True for valid tokens
+    seqlens = mask.sum(dim=-1)
+    maxlen = seqlens.max() # .item()
+    culens = pad(torch.cumsum(seqlens, dim=0, dtype=torch.int32), (1, 0))
+    return seq[mask], culens, maxlen
+
+
+def packed_to_padded(unpadded_seq, mask):
+    # mask: True for valid tokens
+    shape = (*mask.shape, unpadded_seq.shape[-1])
+    out = torch.zeros(shape, dtype=unpadded_seq.dtype, device=unpadded_seq.device)
+    out[mask] = unpadded_seq
+    return out
+
+
+class MultiheadAttentionVarLen(nn.Module):
+    def __init__(self, 
+        embed_dim,
+        num_heads,
+        attn_type='torch',
+        bias=False,
+        dropout=0.0,
+        do_qkv_norm=True,
     ):
         super().__init__()
 
-        assert kind in ["self", "cross"], f"kind must be 'self' or 'cross', got {kind}"
+        # Check that the dimension of each heads makes internal sense
+        if embed_dim % num_heads != 0:
+            raise ValueError(f"embed_dim {embed_dim} must be divisible by num_heads {num_heads}")
 
-        self.model_dim = model_dim
-        self.c_dim = c_dim
+        self.embed_dim = embed_dim
         self.num_heads = num_heads
-        self.batch_first = batch_first
-        self.gated = gated
-        self.scaling = scaling
+        self.head_dim = embed_dim // num_heads
+        self.attn_type = attn_type
+        # self.enable_flash_attn = enable_flash_attn
+        # self.enable_flex_attn = enable_flex_attn and not enable_flash_attn
+        self.bias = bias
+        self.dropout = dropout
+        self.do_qkv_norm = do_qkv_norm
 
-        ### Check args
-        assert not (scaling and gated), "scaling and gated should not both be True"
-        assert not (c_dim is None and c_proj is not None), "c_proj requires c_dim != None"
+        # Better parallelism for self-attention when using parameters directly
+        self.kqv_weight = nn.Parameter(torch.empty(3 * embed_dim, embed_dim))
+        self.kqv_bias = nn.Parameter(torch.empty(3 * embed_dim)) if bias else None
 
-        ### First norm
-        self.norm1 = nn.LayerNorm(
-                            model_dim,
-                            elementwise_affine=(c_dim is None),
-                        )
+        if self.do_qkv_norm:
+            self.q_norm = nn.RMSNorm(self.head_dim)
+            self.k_norm = nn.RMSNorm(self.head_dim)
+            self.v_norm = nn.RMSNorm(self.head_dim)
 
-        ### Context embedding projection to modulate and gate query
-        if c_dim is not None:
-            if c_proj is None:
-                self.c_proj = ContextProjector(c_dim, model_dim, \
-                                               gated, activation=activation)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+
+        self.reset_parameters()
+
+        # to flash or not to flash
+        if self.attn_type == 'flash':
+            if not torch.cuda.is_available():
+                print("Flash attention requires CUDA. Disabling it.")
+            elif torch.cuda.get_device_capability()[0] < 8:
+                print("Flash attention requires compute capability >= 8.0. Disabling it.")
+                self.enable_flash_attn = False
             else:
-                self.c_proj = c_proj # shared weights for context projection
+                from flash_attn import flash_attn_varlen_qkvpacked_func, flash_attn_varlen_kvpacked_func
+                self.flash_attn_varlen_qkvpacked_func = flash_attn_varlen_qkvpacked_func
+                self.flash_attn_varlen_kvpacked_func = flash_attn_varlen_kvpacked_func
 
-        ### Multi-head attention layers
-        self.mha = nn.MultiheadAttention(
-                                  embed_dim=model_dim, 
-                                  num_heads=num_heads, 
-                                  batch_first=batch_first
-                                )
+        elif self.attn_type == 'flex':
+            self.flex_attn_fn = torch.compile(flex_attention)
 
-        ### Feed forward network
-        self.ffn = MLP(
-                    model_dim, 
-                    [model_dim * ffn_factor],
-                    model_dim,
-                    activation=activation
-                )
 
-        ### Second norm
-        self.norm2 = nn.LayerNorm(
-                            model_dim,
-                            elementwise_affine=(c_dim is None),
-                        )
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.kqv_weight)
+        if self.bias:
+            nn.init.constant_(self.kqv_bias, 0.0)
+        self.out_proj.reset_parameters()
 
-        # Scaling parameters, initialized to zero
-        if scaling:
-            self.alpha_attn = nn.Parameter(torch.tensor(0.0))
-            self.alpha_ffn = nn.Parameter(torch.tensor(0.0))
 
-    def modulate(self, x, scale, shift):
-        return x * (1 + scale) + shift
-
-    def get_qkv(self, x, y=None):
-        """
-        Returns:
-            q, k, v: all of shape (batch_size, seq_len, model_dim)
-        """
-        pass
-
-    def forward(self, x, y=None, c=None, key_padding_mask=None, attn_mask=None):
-        """
-        Forward pass for the AttentionLayer.
-
+    def forward(self, q, q_mask=None, kv=None, kv_mask=None, attn_mask=None):
+        '''
         Args:
-            x: input tensor (batch_size, seq_len, model_dim)
-            y: optional input for cross attention
-            c: context tensor
-            key_padding_mask: optional mask for padding
-            attn_mask: optional attention mask for MultiheadAttention
-        """
-        assert self.c_dim is None or c is not None, \
-            "context c must be provided if c_dim is not None!"
+            q: query tensor
+            q_mask: True for valid, False for fake
+            kv: key/value tensor (cross attention)
+            kv_mask: True for valid, False for fake
+            attn_mask: (bs, n_q, n_kv)
+        '''
+        if self.attn_type == 'flash':            
+            if attn_mask is None:
+                if kv is None:
+                    return self.forward_flash_self_attn(q=q, q_mask=q_mask)
+                else:
+                    return self.forward_flash_cross_attn(
+                        q=q, kv=kv, q_mask=q_mask, kv_mask=kv_mask)
 
-        ### prenorm x and y for qkv projection
-        x_norm = self.norm1(x)
-        y_norm = self.norm1(y) if y is not None else None
+        elif self.attn_type == 'flex':
+            return self.forward_flex_attn(q=q, kv=kv, block_mask=attn_mask)
 
-        if self.c_dim is not None:
-            affine_params = self.c_proj(c)
-            ### unpack parameters from context projection
-            if self.gated:
-                scale1, shift1, gate1, scale2, shift2, gate2 = affine_params
-            else:
-                scale1, shift1, scale2, shift2 = affine_params
+        return self.forward_torch(
+            q=q, q_mask=q_mask, kv=kv, kv_mask=kv_mask, attn_mask=attn_mask)
 
-            ### context modulation 1
-            x_norm = self.modulate(x_norm, scale1, shift1)
 
-        ### assumes x is of shape (batch_size, seq_len, model_dim)
-        q, k, v = self.get_qkv(x_norm, y_norm)
-
-        if not self.batch_first:
-            q = q.permute(1, 0, 2)
-            k = k.permute(1, 0, 2)
-            v = v.permute(1, 0, 2)
-
-        ### multi-head attention
-        attn = self.mha(q, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
-
-        if self.gated and self.c_dim is not None:
-            ### gate attention
-            attn = gate1 * attn
-        elif self.scaling:
-            attn = self.alpha_attn * attn
-
-        ### residual + attention
-        x = x + attn
-
-        ### prenorm x for ffn
-        x_norm = self.norm2(x)
-
-        if self.c_dim is not None:
-            ### context modulation 2
-            x_norm = self.modulate(x_norm, scale2, shift2)
-
-        ### feed forward
-        ffn_out = self.ffn(x_norm)
-
-        if self.gated and self.c_dim is not None:
-            ### gate ffn
-            ffn_out = gate2 * ffn_out
-        elif self.scaling:
-            ffn_out = self.alpha_ffn * ffn_out
-
-        ### residual + ffn
-        x = x + ffn_out
-
-        return x
-    
-
-class SelfAttentionLayer(AttentionLayer):
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(kind="self", *args, **kwargs)
-
-        self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim)
-
-    def get_qkv(self, x, y=None):
-        q, k ,v = self.qkv_proj(x).chunk(3, dim=-1)
-        return q, k, v
-
- 
-class CrossAttentionLayer(AttentionLayer):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(kind="cross", *args, **kwargs)
-
-        self.q_proj  = nn.Linear(self.model_dim,   self.model_dim)
-        self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim)
-
-    def get_qkv(self, x, y):
-        q = self.q_proj(x)
-        k, v = self.kv_proj(y).chunk(2, dim=-1)
-        return q, k, v
-
-class DecoderBlock(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.SA = SelfAttentionLayer(*args, **kwargs)
-        self.CA = CrossAttentionLayer(*args, **kwargs)
-        self.num_heads = self.CA.num_heads
-
-    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None,
-                attn_mask_SA=None, attn_mask_CA=None):
-        """
-        Forward pass for DecoderBlock.
-
+    def forward_flex_attn(self, q, kv=None, block_mask=None):
+        '''
         Args:
-            x_a: input tensor (batch_size, seq_len, model_dim)
-            x_b: cross input tensor
-            c: context tensor
-            key_padding_mask_SA: key padding mask for self-attention
-            key_padding_mask_CA: key padding mask for cross-attention
-            attn_mask_SA: attention mask for self-attention
-            attn_mask_CA: attention mask for cross-attention
-        """
-        ### Self attention
-        x_a = self.SA(x_a, c=c, key_padding_mask=key_padding_mask_SA, attn_mask=attn_mask_SA)
+            q: normalized query tensor
+            q_mask: True for valid, False for fake
+            kv: key/value tensor (cross attention)
+            kv_mask: True for valid, False for fake
+            attn_mask: (bs, n_q, n_kv)
+        '''
+        bs, n_nodes, emb_dim = q.shape
 
-        ### Cross attention
-        x_a = self.CA(x_a, x_b, c=c, key_padding_mask=key_padding_mask_CA, attn_mask=attn_mask_CA)
+        # compute q, k, v; shape = (bs, n_q|n_kv, emb_dim)
+        q, k, v = self.get_qkv_projections(
+            q=q, kv=kv, weight=self.kqv_weight, bias=self.kqv_bias)
 
-        return x_a
+        # transform tensors to (bs, n_head, n_q|n_kv, head_dim)
+        shape = (bs, -1, self.num_heads, self.head_dim)  # Dont use S for cross attn
+        q, k, v = (t.view(shape).transpose(1, 2).contiguous() for t in (q, k, v))
 
-class DualUpdateBlock(nn.Module):
+        if self.do_qkv_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+            v = self.v_norm(v)
 
-    def __init__(self, *args, **kwargs):
+        # convert to bfloat16 for flex attention
+        q_orig_dtype = q.dtype
+        if q_orig_dtype != torch.bfloat16:
+            q = q.to(torch.bfloat16)
+            k = k.to(torch.bfloat16)
+            v = v.to(torch.bfloat16)
+
+        # run attention
+        a_out = self.flex_attn_fn(q, k, v, block_mask=block_mask)
+
+        # recombine heads
+        a_out = a_out.transpose(1, 2).contiguous().view(bs, n_nodes, emb_dim)
+
+        # convert back to original dtype (inference)
+        if not torch.is_autocast_enabled() and a_out.dtype != q_orig_dtype:
+            a_out = a_out.to(q_orig_dtype)
+
+        # Mix with final linear layer
+        a_out = self.out_proj(a_out)
+
+        # convert back to original dtype (training)
+        if torch.is_autocast_enabled() and a_out.dtype != q_orig_dtype:
+            a_out = a_out.to(q_orig_dtype)
+
+        return a_out
+
+
+    def forward_flash_self_attn(self, q, q_mask=None):
+        '''
+        Args:
+            q: query tensor
+            q_mask: True for valid, False for fake
+        '''
+
+        if q_mask is None:
+            # True for all tokens (all tokens are valid)
+            q_mask = torch.full(q.shape[:-1], True, dtype=torch.bool, device=q.device)
+        q_packed, culens, maxlen = padded_to_packed(q, q_mask)
+
+        # compute qkv
+        qkv = F.linear(q_packed, self.kqv_weight, self.kqv_bias)
+        qkv = qkv.view(-1, 3, self.num_heads, self.head_dim)
+
+        if self.do_qkv_norm:
+            dtype = qkv.dtype
+            q, k, v = qkv.unbind(1)
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+            v = self.v_norm(v)
+            qkv = torch.stack([q, k, v], dim=1).to(dtype)
+
+        # Convert to bfloat16 for the flash-varlen backend
+        qkv_orig_dtype = qkv.dtype
+        qkv = qkv.to(torch.bfloat16) if qkv_orig_dtype != torch.bfloat16 else qkv
+
+        # Run the flash-varlen backend
+        dropout = self.dropout if self.training else 0.0
+        a_out = self.flash_attn_varlen_qkvpacked_func(qkv, culens, maxlen, dropout)
+        a_out = a_out.reshape(-1, self.embed_dim)
+
+        # Convert back to the original dtype (inference)
+        if not torch.is_autocast_enabled() and a_out.dtype != qkv_orig_dtype:
+            a_out = a_out.to(qkv_orig_dtype)
+
+        # Mix with final linear layer
+        a_out = self.out_proj(a_out)
+
+        # Convert back to the original dtype (training)
+        if torch.is_autocast_enabled() and a_out.dtype != qkv_orig_dtype:
+            a_out = a_out.to(qkv_orig_dtype)
+
+        # unpack the output
+        a_out = packed_to_padded(a_out, q_mask)
+
+        return a_out
+
+
+    def forward_flash_cross_attn(self, q, kv, q_mask=None, kv_mask=None):
+        '''
+        Args:
+            q: query tensor
+            kv: key/value tensor (cross attention)
+            q_mask: True for valid, False for fake
+            kv_mask: True for valid, False for fake
+        '''
+        device = q.device
+        if q_mask is None:
+            q_mask = torch.full(q.shape[:-1], True, dtype=torch.bool, device=device)
+        if kv_mask is None:
+            kv_mask = torch.full(kv.shape[:-1], True, dtype=torch.bool, device=device)
+
+        # Pack Q and KV independently (varlen)
+        q_packed, cu_q, max_q = padded_to_packed(q, q_mask)
+        kv_packed, cu_k, max_k = padded_to_packed(kv, kv_mask)
+
+        # projections
+        q_proj, k_proj, v_proj = self.get_qkv_projections(
+            q_packed, self.kqv_weight, self.kqv_bias, kv=kv_packed)
+
+        # Reshape to heads
+        H, D = self.num_heads, self.head_dim
+        q_proj = q_proj.view(-1, H, D)   # [Tq, H, D]
+        k_proj = k_proj.view(-1, H, D)   # [Tk, H, D]
+        v_proj = v_proj.view(-1, H, D)   # [Tk, H, D]
+        kv_proj = torch.stack([k_proj, v_proj], dim=1)  # [Tk, 2, H, D]
+
+        # Optional per-head norms (keep dtype consistency)
+        if getattr(self, "do_qkv_norm", False):
+            dtype = q_proj.dtype
+            k_proj, v_proj = kv_proj.unbind(dim=1)
+            q_proj = self.q_norm(q_proj)
+            k_proj = self.k_norm(k_proj)
+            v_proj = self.v_norm(v_proj)
+            kv_proj = torch.stack([k_proj, v_proj], dim=1).to(dtype)
+
+        q_orig_dtype = q_proj.dtype
+        if q_orig_dtype != torch.bfloat16:
+            q_proj = q_proj.to(torch.bfloat16)
+            kv_proj = kv_proj.to(torch.bfloat16)
+
+        dropout_p = self.dropout if self.training else 0.0
+        a_out = self.flash_attn_varlen_kvpacked_func(
+            q=q_proj, kv=kv_proj, cu_seqlens_q=cu_q, cu_seqlens_k=cu_k,
+            max_seqlen_q=max_q, max_seqlen_k=max_k, dropout_p=dropout_p)
+        a_out = a_out.reshape(-1, self.num_heads * self.head_dim)
+
+        # # Convert back to the original dtype (inference)
+        if not torch.is_autocast_enabled() and a_out.dtype != q_orig_dtype:
+            a_out = a_out.to(q_orig_dtype)
+
+        # Output projection to model dim
+        a_out = self.out_proj(a_out)
+
+        # Cast back to original dtype (match Q path)
+        if torch.is_autocast_enabled() and a_out.dtype != q_orig_dtype:
+            a_out = a_out.to(q_orig_dtype)
+
+        # Unpack to padded using the Q mask's shape
+        a_out = packed_to_padded(a_out, q_mask)
         
-        super().__init__()
-        self.CA_a = CrossAttentionLayer(*args, **kwargs)
-        self.CA_b = CrossAttentionLayer(*args, **kwargs)
-        self.num_heads = self.CA_a.num_heads
+        return a_out
 
-    def forward(self, x_a, x_b, c=None, key_padding_mask_a=None, key_padding_mask_b=None, attn_mask_a=None, attn_mask_b=None):
 
-        ### First update
-        # q: x_a
-        # k/v: x_b
-        x_a = self.CA_a(x_a, x_b, c=c, key_padding_mask=key_padding_mask_b, 
-                        attn_mask=attn_mask_a)
+    def get_qkv_projections(self, q, weight, bias=None, kv=None):
+        if kv is None: # self attention
+            return F.linear(q, self.kqv_weight, self.kqv_bias).chunk(3, dim=-1)
+        else: # cross attention
+            dim = q.size(-1)
+            w_q, w_kv = weight.split([dim, dim * 2])
+            b_q, b_kv = bias.split([dim, dim * 2]) if bias is not None else (None, None)
 
-        ### Second update
-        # q: x_b
-        # k/v: x_a
-        x_b = self.CA_b(x_b, x_a, c=c, key_padding_mask=key_padding_mask_a, 
-                        attn_mask=attn_mask_b)
+            q_proj = F.linear(q, w_q, b_q)
+            k_proj, v_proj = F.linear(kv, w_kv, b_kv).chunk(2, dim=-1)
+            return q_proj, k_proj, v_proj
 
-        return x_a, x_b
+
+    def get_attn_mask(self, q_shape, kv_mask=None, attn_mask=None):
+        ''' 
+        attn_mask for torch.nn.functional.scaled_dot_product_attention()
+        padded tensors do not send info, but they can receive them
+        Args:
+            kv_mask: (bs, n_kv) | None
+                in case of self attention, this is the same as q_mask
+            q_shape: (bs, n_q, n_feat) | None
+            attn_mask: (bs, n_q, n_kv) | None
+        Returns:
+            mask: (bs, n_q, n_kv)
+        '''
+        mask = None
+        if kv_mask is not None:
+            mask = kv_mask.unsqueeze(-2).expand(-1, q_shape[-2], -1)
+
+        if attn_mask is not None:
+            mask = attn_mask if mask is None else mask & attn_mask
+
+        # for multihead attention
+        if mask is not None:
+            mask = mask.unsqueeze(1)
+
+        return mask
+
+
+    def forward_torch(self, q, q_mask=None, kv=None, kv_mask=None, attn_mask=None):
+        '''
+        Args:
+            q: normalized query tensor
+            q_mask: True for valid, False for fake
+            kv: key/value tensor (cross attention)
+            kv_mask: True for valid, False for fake
+            attn_mask: (bs, n_q, n_kv)
+        '''
+
+        bs, n_nodes, emb_dim = q.shape
+
+        # compute q, k, v; shape = (bs, n_q|n_kv, emb_dim)
+        q, k, v = self.get_qkv_projections(
+            q=q, kv=kv, weight=self.kqv_weight, bias=self.kqv_bias)
+
+        # transform tensors to (bs, n_head, n_q|n_kv, head_dim)
+        shape = (bs, -1, self.num_heads, self.head_dim)  # Dont use S for cross attn
+        q, k, v = (t.view(shape).transpose(1, 2).contiguous() for t in (q, k, v))
+
+        if self.do_qkv_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+            v = self.v_norm(v)
+
+        # run attention
+        attn_mask = self.get_attn_mask(
+            kv_mask=q_mask if kv is None else kv_mask, # who sends messages
+            q_shape=q.shape, attn_mask=attn_mask)
+        dropout = self.dropout if self.training else 0.0    
+        a_out = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=attn_mask, dropout_p=dropout)
+
+        # recombine heads
+        a_out = a_out.transpose(1, 2).contiguous().view(bs, n_nodes, emb_dim)
+
+        # Mix with final linear layer
+        a_out = self.out_proj(a_out)
+        
+        return a_out
