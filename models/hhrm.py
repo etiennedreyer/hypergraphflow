@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import yaml
-from hypergraphflow.models.transformer import DecoderBlock, ContextProjector
+# from hypergraphflow.models.transformer import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
 from dataclasses import dataclass
@@ -72,54 +72,58 @@ class HHRM(nn.Module):
 
         ### Nodes (low-level) updated based on hyperedges (high-level)
         CA_L_cfg = self.config['node_CA_L']
-        if self.timestep_embedding:
-            self.context_projector_L = ContextProjector(
-                                        c_dim=CA_L_cfg['c_dim'],
-                                        model_dim=CA_L_cfg['model_dim'],
-                                        gated=CA_L_cfg['gated'],
-                                        activation=CA_L_cfg['activation']
-                                    )
+        # if self.timestep_embedding:
+        #     self.context_projector_L = ContextProjector(
+        #                                 c_dim=CA_L_cfg['c_dim'],
+        #                                 model_dim=CA_L_cfg['model_dim'],
+        #                                 gated=CA_L_cfg['gated'],
+        #                                 activation=CA_L_cfg['activation']
+        #                             )
 
-        self.CA_L = nn.ModuleList([
-                            DecoderBlock(
-                                model_dim=CA_L_cfg['model_dim'],
-                                attn_type=CA_L_cfg.get('attn_type', 'torch'),
-                                attn_bias=CA_L_cfg.get('attn_bias', False),
-                                attn_dropout=CA_L_cfg.get('attn_dropout', 0.0),
-                                attn_do_qkv_norm=CA_L_cfg.get('attn_do_qkv_norm', True),
-                                num_heads=CA_L_cfg['num_heads'],
-                                activation=CA_L_cfg['activation'],
-                                c_dim=CA_L_cfg['c_dim'] if self.timestep_embedding else None,
-                                gated=CA_L_cfg['gated'],
-                                scaling=CA_L_cfg['scaling'],
-                                ffn_factor=CA_L_cfg['ffn_factor'],
-                                c_proj=self.context_projector_L if self.timestep_embedding else None,
-                            )
-                            for _ in range(CA_L_cfg['num_layers'])
-                        ])
+        # self.CA_L = nn.ModuleList([
+        #                     DecoderBlock(
+        #                         model_dim=CA_L_cfg['model_dim'],
+        #                         attn_type=CA_L_cfg.get('attn_type', 'torch'),
+        #                         attn_bias=CA_L_cfg.get('attn_bias', False),
+        #                         attn_dropout=CA_L_cfg.get('attn_dropout', 0.0),
+        #                         attn_do_qkv_norm=CA_L_cfg.get('attn_do_qkv_norm', True),
+        #                         num_heads=CA_L_cfg['num_heads'],
+        #                         activation=CA_L_cfg['activation'],
+        #                         c_dim=CA_L_cfg['c_dim'] if self.timestep_embedding else None,
+        #                         gated=CA_L_cfg['gated'],
+        #                         scaling=CA_L_cfg['scaling'],
+        #                         ffn_factor=CA_L_cfg['ffn_factor'],
+        #                         c_proj=self.context_projector_L if self.timestep_embedding else None,
+        #                     )
+        #                     for _ in range(CA_L_cfg['num_layers'])
+        #                 ])
         
+        from models.transformer import DiTDecoder
+        self.CA_L = DiTDecoder(**CA_L_cfg)
+
         ### Hyperedges (high-level) updated based on nodes (low-level)
         CA_H_cfg = self.config['edge_CA_H']
-        if self.timestep_embedding:
-            self.context_projector_H = ContextProjector(
-                                        c_dim=CA_H_cfg['c_dim'],
-                                        model_dim=CA_H_cfg['model_dim'],
-                                        gated=CA_H_cfg['gated'],
-                                        activation=CA_H_cfg['activation']
-                                    )
-        self.CA_H = nn.ModuleList([
-                            DecoderBlock(
-                                model_dim=CA_H_cfg['model_dim'],
-                                num_heads=CA_H_cfg['num_heads'],
-                                activation=CA_H_cfg['activation'],
-                                c_dim=CA_H_cfg['c_dim'] if self.timestep_embedding else None,
-                                gated=CA_H_cfg['gated'],
-                                scaling=CA_H_cfg['scaling'],
-                                ffn_factor=CA_H_cfg['ffn_factor'],
-                                c_proj=self.context_projector_H if self.timestep_embedding else None,
-                            )
-                            for _ in range(CA_H_cfg['num_layers'])
-                        ])
+        # if self.timestep_embedding:
+        #     self.context_projector_H = ContextProjector(
+        #                                 c_dim=CA_H_cfg['c_dim'],
+        #                                 model_dim=CA_H_cfg['model_dim'],
+        #                                 gated=CA_H_cfg['gated'],
+        #                                 activation=CA_H_cfg['activation']
+        #                             )
+        # self.CA_H = nn.ModuleList([
+        #                     DecoderBlock(
+        #                         model_dim=CA_H_cfg['model_dim'],
+        #                         num_heads=CA_H_cfg['num_heads'],
+        #                         activation=CA_H_cfg['activation'],
+        #                         c_dim=CA_H_cfg['c_dim'] if self.timestep_embedding else None,
+        #                         gated=CA_H_cfg['gated'],
+        #                         scaling=CA_H_cfg['scaling'],
+        #                         ffn_factor=CA_H_cfg['ffn_factor'],
+        #                         c_proj=self.context_projector_H if self.timestep_embedding else None,
+        #                     )
+        #                     for _ in range(CA_H_cfg['num_layers'])
+        #                 ])
+        self.CA_H = DiTDecoder(**CA_H_cfg)
 
         ### Indicator predictor
         ind_pred_cfg = self.config['indicator_predictor']
@@ -199,44 +203,42 @@ class HHRM(nn.Module):
                         ### Low-level update
                         z_L = self.norm_L(z_L + input_state)
                         t_emb = self.get_time_emb(segment, iter_L, iter_H)
-                        for block in self.CA_L:
-                            z_L = block(z_L, z_H,
-                                        c=t_emb,
-                                        key_padding_mask_SA=node_mask,
-                                        key_padding_mask_CA=edge_mask
-                                        )
+                        # for block in self.CA_L:
+                        z_L = self.CA_L(q=z_L, kv=z_H,
+                                        context=t_emb,
+                                        q_mask=node_mask,
+                                        kv_mask=edge_mask
+                                    )
 
                 if not last_iter_H:
                     ### High-level update
                     z_H = self.norm_H(z_H + edge_pos_emb)
                     t_emb = self.get_time_emb(segment, self.iters_L - 1, iter_H)
-                    for block in self.CA_H:
-                        z_H = block(z_H, z_L,
-                                    c=t_emb,
-                                    key_padding_mask_SA=edge_mask,
-                                    key_padding_mask_CA=node_mask
-                                    )
+                    # for block in self.CA_H:
+                    z_H = self.CA_H(q=z_H, kv=z_L,
+                                    context=t_emb,
+                                    q_mask=edge_mask,
+                                    kv_mask=node_mask
+                                )
 
         assert not z_H.requires_grad and not z_L.requires_grad
 
         ### 1-step gradient approximation
         z_L = self.norm_L(z_L + input_state)
         t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
-        for block in self.CA_L:
-            z_L = block(z_L, z_H,
-                         c=t_emb,
-                         key_padding_mask_SA=node_mask,
-                         key_padding_mask_CA=edge_mask
-                        )
+        z_L = self.CA_L(q=z_L, kv=z_H,
+                        context=t_emb,
+                        q_mask=node_mask,
+                        kv_mask=edge_mask
+                    )
 
         z_H = self.norm_H(z_H + edge_pos_emb)
-        t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
-        for block in self.CA_H:
-            z_H = block(z_H, z_L,
-                         c=t_emb,
-                         key_padding_mask_SA=edge_mask,
-                         key_padding_mask_CA=node_mask
-                        )
+        # t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
+        z_H = self.CA_H(q=z_H, kv=z_L,
+                        context=t_emb,
+                        q_mask=edge_mask,
+                        kv_mask=node_mask
+                    )
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)

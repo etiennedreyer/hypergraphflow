@@ -64,7 +64,7 @@ class DiTLayer(nn.Module):
             self.layer_scale_attn = LayerScale(embed_dim)
             self.layer_scale_mlp = LayerScale(embed_dim)
 
-    def forward(self, q, q_mask=None, kv=None, kv_mask=None, context=None, attn_mask=None, attn_bias=None):
+    def forward(self, q, q_mask=None, kv=None, kv_mask=None, context=None, attn_mask=None):
         '''
             if k is provided, then we will have cross-attention
         '''
@@ -74,12 +74,12 @@ class DiTLayer(nn.Module):
         if kv == None: # self-attention
             q_attn = self.mha(
                 q=modulate(self.norm1(q), shift_msa, scale_msa),
-                q_mask=q_mask, attn_mask=attn_mask, attn_bias=attn_bias)
-        
+                q_mask=q_mask, attn_mask=attn_mask)
+
         else: # cross-attention
             q_attn = self.mha(
                 q=q, kv=modulate(self.norm1(kv), shift_msa, scale_msa),
-                q_mask=q_mask, kv_mask=kv_mask, attn_mask=attn_mask, attn_bias=attn_bias)
+                q_mask=q_mask, kv_mask=kv_mask, attn_mask=attn_mask)
     
         if hasattr(self, 'layer_scale_attn'):
             q_attn = self.layer_scale_attn(q_attn)

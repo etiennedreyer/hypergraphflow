@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from .utils import padded_to_packed, packed_to_padded
 from torch.nn.attention.flex_attention import flex_attention
 from torch.nn.functional import pad
 
@@ -65,7 +64,7 @@ class MultiheadAttentionVarLen(nn.Module):
                 print("Flash attention requires CUDA. Disabling it.")
             elif torch.cuda.get_device_capability()[0] < 8:
                 print("Flash attention requires compute capability >= 8.0. Disabling it.")
-                self.enable_flash_attn = False
+                self.attn_type = 'torch'
             else:
                 from flash_attn import flash_attn_varlen_qkvpacked_func, flash_attn_varlen_kvpacked_func
                 self.flash_attn_varlen_qkvpacked_func = flash_attn_varlen_qkvpacked_func
