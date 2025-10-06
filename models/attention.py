@@ -3,7 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 from .utils import padded_to_packed, packed_to_padded
 from torch.nn.attention.flex_attention import flex_attention
-
+from torch.nn.functional import pad
 
 
 
@@ -42,8 +42,6 @@ class MultiheadAttentionVarLen(nn.Module):
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
         self.attn_type = attn_type
-        # self.enable_flash_attn = enable_flash_attn
-        # self.enable_flex_attn = enable_flex_attn and not enable_flash_attn
         self.bias = bias
         self.dropout = dropout
         self.do_qkv_norm = do_qkv_norm

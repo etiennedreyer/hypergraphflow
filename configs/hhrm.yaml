@@ -17,24 +17,29 @@ node_embedder:
     activation: relu
 
 node_CA_L:
-    model_dim: *H
-    c_dim: *T
-    num_heads: 3
-    num_layers: 4
+    embed_dim: *H
+    context_dim: *T
+    mha_config:
+        num_heads: 3
+        num_layers: 4
+        attn_type: flash 
     gated: false
     scaling: true
     activation: silu
     ffn_factor: 2
 
 edge_CA_H:
-    model_dim: *H
-    c_dim: *T
-    num_heads: 3
-    num_layers: 4
+    embed_dim: *H
+    context_dim: *T
+    mha_config:
+        num_heads: 3
+        num_layers: 4
+        attn_type: flash
     gated: false
     scaling: true
-    activation: silu
-    ffn_factor: 2
+    dense_config:
+        activation: silu
+        ffn_factor: 2
 
 indicator_predictor:
     input_dim: *H
