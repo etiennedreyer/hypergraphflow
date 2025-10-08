@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.profiler import record_function
 import yaml
 # from hypergraphflow.models.transformer import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
@@ -223,22 +224,24 @@ class HHRM(nn.Module):
 
         assert not z_H.requires_grad and not z_L.requires_grad
 
-        ### 1-step gradient approximation
-        z_L = self.norm_L(z_L + input_state)
-        t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
-        z_L = self.CA_L(q=z_L, kv=z_H,
-                        context=t_emb,
-                        q_mask=node_mask,
-                        kv_mask=edge_mask
-                    )
+        with record_function("1-step_gradient_approximation"):
 
-        z_H = self.norm_H(z_H + edge_pos_emb)
-        # t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
-        z_H = self.CA_H(q=z_H, kv=z_L,
-                        context=t_emb,
-                        q_mask=edge_mask,
-                        kv_mask=node_mask
-                    )
+            ### 1-step gradient approximation
+            z_L = self.norm_L(z_L + input_state)
+            t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
+            z_L = self.CA_L(q=z_L, kv=z_H,
+                            context=t_emb,
+                            q_mask=node_mask,
+                            kv_mask=edge_mask
+                        )
+
+            z_H = self.norm_H(z_H + edge_pos_emb)
+            # t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
+            z_H = self.CA_H(q=z_H, kv=z_L,
+                            context=t_emb,
+                            q_mask=edge_mask,
+                            kv_mask=node_mask
+                        )
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)

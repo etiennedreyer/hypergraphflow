@@ -98,7 +98,7 @@ class DiTLayer(nn.Module):
 class DiTEncoder(nn.Module):
     def __init__(
         self, embed_dim, num_layers, mha_config,
-        dense_config=None, context_dim=0, out_dim=0,
+        dense_config=None, context_dim=0, out_dim=0, layer_scale=False,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -107,7 +107,9 @@ class DiTEncoder(nn.Module):
 
         self.layers = nn.ModuleList(
             [DiTLayer(
-                embed_dim, context_dim, mha_config, dense_config,
+                embed_dim, context_dim, 
+                mha_config, dense_config, 
+                layer_scale=layer_scale
             ) for _ in range(num_layers)]
         )
         self.final_norm = nn.LayerNorm(embed_dim)
@@ -132,7 +134,7 @@ class DiTEncoder(nn.Module):
 class DiTDecoder(nn.Module):
     def __init__(
         self, embed_dim, num_layers, sa_config, ca_config,
-        dense_config=None, context_dim=0, out_dim=0,
+        dense_config=None, context_dim=0, out_dim=0, layer_scale=False,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -141,12 +143,16 @@ class DiTDecoder(nn.Module):
 
         self.ca_layers = nn.ModuleList(
             [DiTLayer(
-                embed_dim, context_dim, ca_config, dense_config,
+                embed_dim, context_dim, 
+                ca_config, dense_config, 
+                layer_scale=layer_scale,
             ) for _ in range(num_layers)]
         )
         self.sa_layers = nn.ModuleList(
             [DiTLayer(
-                embed_dim, context_dim, sa_config, dense_config,
+                embed_dim, context_dim, 
+                sa_config, dense_config, 
+                layer_scale=layer_scale,
             ) for _ in range(num_layers)]
         )
 

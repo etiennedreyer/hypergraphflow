@@ -1,6 +1,7 @@
 import torch
 
 import torch.nn.functional as F
+from torch.profiler import record_function
 from functools import partial
 
 from models.hhrm import HHRM
@@ -48,18 +49,19 @@ class HHRMLightning(BaseLightning):
         hid_state = self.net.get_init_state()
 
         ### Deep Supervision
-        for s in range(self.net.segments):
+        with record_function("deep_supervision"):
+            for s in range(self.net.segments):
 
-            self.optimizers().zero_grad()
+                self.optimizers().zero_grad()
 
-            pred, hid_state = self.net(hid_state, node_feats, segment=s)
-            loss = self.loss(pred, im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
+                pred, hid_state = self.net(hid_state, node_feats, segment=s)
+                loss = self.loss(pred, im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
 
-            self.manual_backward(loss)
-            self.clip_gradients(self.optimizers(), gradient_clip_val=1.0, gradient_clip_algorithm="norm") ### TODO check if this is still helpful
-            self.optimizers().step()
+                self.manual_backward(loss)
+                self.clip_gradients(self.optimizers(), gradient_clip_val=1.0, gradient_clip_algorithm="norm") ### TODO check if this is still helpful
+                self.optimizers().step()
 
-            hid_state = hid_state.detach()
+                hid_state = hid_state.detach()
 
         ### Convert to probs
         if self.net.output_norm is None:

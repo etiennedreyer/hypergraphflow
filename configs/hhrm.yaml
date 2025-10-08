@@ -17,7 +17,7 @@ node_embedder:
     activation: relu
 
 node_CA_L:
-    num_layers: 3
+    num_layers: 4
     embed_dim: *H
     context_dim: *T
     sa_config:
@@ -28,13 +28,12 @@ node_CA_L:
         attn_type: flash 
     dense_config:
         hidden_layers: [72]
-    # gated: false
-    # scaling: true
-    # activation: silu
-    # ffn_factor: 2
+        activation: SiLU
+    layer_scale: true
+
 
 edge_CA_H:
-    num_layers: 5
+    num_layers: 4
     embed_dim: *H
     context_dim: *T
     sa_config:
@@ -43,10 +42,10 @@ edge_CA_H:
     ca_config:
         num_heads: 3
         attn_type: flash
-    # gated: false
-    # scaling: true
     dense_config:
         hidden_layers: [72]
+        activation: SiLU
+    layer_scale: true
 
 indicator_predictor:
     input_dim: *H
@@ -55,7 +54,7 @@ indicator_predictor:
     activation: relu
 
 hrm:
-    iters_L: 3
-    iters_H: 3
-    segments: 4
+    iters_L: 2
+    iters_H: 2
+    segments: 8
     use_draft: false

@@ -209,9 +209,9 @@ def main(config, mode="train", checkpoint=None, precision=None, resume=None, ove
     model = get_model(config)
 
     ### Checkpoint
-    if checkpoint is not None:
-        print(f"Loading checkpoint from {checkpoint}")
-        model.load_state_dict(torch.load(checkpoint)['state_dict'])
+    # if checkpoint is not None:
+    #     print(f"Loading checkpoint from {checkpoint}")
+    #     model.load_state_dict(torch.load(checkpoint)['state_dict'])
 
     ### Trainer
     trainer = get_trainer(config, model.name, ds.name, log=(mode == 'train'), resume_id=resume)
@@ -245,7 +245,7 @@ def profile_model(config, model, dl):
         accelerator=config.get('accelerator', 'auto'),
         devices=config.get('devices', [0]),
         max_epochs=1,
-        limit_train_batches=100,
+        limit_train_batches=5,
         profiler=profiler,
         logger=False,
         callbacks=[],
@@ -284,7 +284,7 @@ if __name__ == "__main__":
                                    overtrain=args.overtrain)
 
     if args.mode == 'train':
-        trainer.fit(model, dls['train'], dls['val'])
+        trainer.fit(model, dls['train'], dls['val'], ckpt_path=args.checkpoint)
     elif args.mode == 'test':
         trainer.test(model, dls['test'])
     elif args.mode == 'flop':
