@@ -1,6 +1,7 @@
 import numpy as np
 import ray
 import torch
+from torch.profiler import record_function
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
@@ -8,20 +9,46 @@ from functools import partial
 
 EPS = 1e-8
 
-def l_split_ind(l, n):
-    r = l%n
-    return np.cumsum([0] + [l//n+1]*r + [l//n]*(n-r))
+def get_lsa_indices(pdist, target_ind):
+
+    if target_ind is None:
+        indices = torch.from_numpy(np.array([linear_sum_assignment(p) for p in pdist])).long()
+    else:
+        b, n_part, _ = pdist.size()
+        indices = torch.arange(n_part).unsqueeze(0).unsqueeze(0).expand(b, 2, -1).clone() # step1
+        _arange = torch.arange(n_part)
+
+        for i, (p, ind) in enumerate(zip(pdist, target_ind)):
+            ind_mask = ind == 1
+            row_ind, col_ind = linear_sum_assignment(p[ind_mask])
+            col_ind = torch.from_numpy(col_ind)
+
+            indices[i, 1, ind_mask] = col_ind # step2
+            
+            unmatched_mask = torch.full((n_part,), True)
+            unmatched_mask[col_ind] = False
+            indices[i, 1, ~ind_mask] = _arange[unmatched_mask] # step3
+
+    return indices
 
 @ray.remote
-def lsa(arr, s, e):
-    return np.array([linear_sum_assignment(p) for p in arr[s:e]])
+def lsa(arr, ind, s, e):
+    ind_mask = ind[s:e] if ind is not None else None
+    return get_lsa_indices(arr[s:e], ind_mask)
 
-def ray_lsa(arr, n):
+def ray_lsa(arr, target_ind, n):
     l = arr.shape[0]
-    ind = l_split_ind(l, n)
-    arr_id = ray.put(arr)
-    res = [lsa.remote(arr_id, ind[i], ind[i+1]) for i in range(n)]
-    res = np.concatenate([ray.get(r) for r in res])
+
+    r = l%n
+    idxs = np.cumsum([0] + [l//n+1]*r + [l//n]*(n-r))
+
+    arr_put = ray.put(arr)
+    if target_ind is not None:
+        ind_put = ray.put(target_ind)
+    else:
+        ind_put = None
+    res = [lsa.remote(arr_put, ind_put, idxs[i], idxs[i+1]) for i in range(n)]
+    res = torch.cat([ray.get(r) for r in res])
     return res
 
 def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'):
@@ -43,7 +70,7 @@ def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'
 
     return total_loss
 
-def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None):
+def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, mask_nonexistent=True):
 
     if loss_fn is None:
         loss_fn = partial(F.binary_cross_entropy_with_logits)
@@ -59,15 +86,23 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None)
         for mask in masks:
             pdist += get_pdist(mask)
 
-    pdist_ = pdist.detach().cpu().numpy()
+    with record_function("LSA_computation"):
 
-    if n > 0:
-        indices = ray_lsa(pdist_, n)
-    else:
-        indices = np.array([linear_sum_assignment(p) for p in pdist_])
+        pdist_ = pdist.detach().cpu()
+        if mask_nonexistent:
+            target_ind = target[..., -1].bool().cpu()
+        else:
+            target_ind = None
+
+        if n > 0:
+            indices = ray_lsa(pdist_, target_ind, n)
+        else:
+            indices = get_lsa_indices(pdist_, target_ind)
+
+        indices = indices.to(device=pdist.device)
 
     flat_indices = indices.shape[2] * indices[:, 0] + indices[:, 1]
-    losses = torch.gather(pdist.flatten(1,2), 1, torch.from_numpy(flat_indices).to(device=pdist.device))
+    losses = torch.gather(pdist.flatten(1,2), 1, flat_indices)
     total_loss = losses.mean(1)
 
     if return_indices:
