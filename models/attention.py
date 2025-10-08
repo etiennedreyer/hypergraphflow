@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from models.mlp import MLP
 
 
@@ -24,11 +25,9 @@ class ContextProjector(nn.Module):
 class AttentionLayer(nn.Module):
     def __init__(
         self,
-        kind: str, # "self" or "cross"
         model_dim: int,
         c_dim: int = None,
         num_heads: int = 4,
-        batch_first: bool = True,
         activation: str = "silu",
         gated: bool = False,
         scaling: bool = False,
@@ -37,18 +36,16 @@ class AttentionLayer(nn.Module):
     ):
         super().__init__()
 
-        assert kind in ["self", "cross"], f"kind must be 'self' or 'cross', got {kind}"
-
         self.model_dim = model_dim
         self.c_dim = c_dim
         self.num_heads = num_heads
-        self.batch_first = batch_first
         self.gated = gated
         self.scaling = scaling
 
         ### Check args
         assert not (scaling and gated), "scaling and gated should not both be True"
         assert not (c_dim is None and c_proj is not None), "c_proj requires c_dim != None"
+        assert model_dim % num_heads == 0, "model_dim must be divisible by num_heads"
 
         ### First norm
         self.norm1 = nn.LayerNorm(
@@ -64,12 +61,10 @@ class AttentionLayer(nn.Module):
             else:
                 self.c_proj = c_proj # shared weights for context projection
 
-        ### Multi-head attention layers
-        self.mha = nn.MultiheadAttention(
-                                  embed_dim=model_dim, 
-                                  num_heads=num_heads, 
-                                  batch_first=batch_first
-                                )
+        ### Head-mixing layer
+        self.out_proj = nn.Linear(model_dim, model_dim)
+        nn.init.xavier_uniform_(self.out_proj.weight)
+        nn.init.constant_(self.out_proj.bias, 0)
 
         ### Feed forward network
         self.ffn = MLP(
@@ -87,8 +82,9 @@ class AttentionLayer(nn.Module):
 
         # Scaling parameters, initialized to zero
         if scaling:
-            self.alpha_attn = nn.Parameter(torch.tensor(0.0))
-            self.alpha_ffn = nn.Parameter(torch.tensor(0.0))
+            self.alpha_attn = nn.Parameter(torch.tensor(1.0e-3))
+            self.alpha_ffn = nn.Parameter(torch.tensor(1.0e-3))
+
 
     def modulate(self, x, scale, shift):
         return x * (1 + scale) + shift
@@ -99,6 +95,55 @@ class AttentionLayer(nn.Module):
             q, k, v: all of shape (batch_size, seq_len, model_dim)
         """
         pass
+
+    def get_attn_mask(self, key_padding_mask=None, attn_mask=None):
+
+        if key_padding_mask is None and attn_mask is None:
+            return None
+
+        ### format key_padding_mask for multiple heads
+        if key_padding_mask is not None:
+            assert key_padding_mask.dtype == torch.bool, "assumes boolean key_padding_mask"
+            assert key_padding_mask.dim() == 2, "assumes batched key_padding_mask"
+            key_padding_mask = key_padding_mask[:, None, None, :]
+
+        ### format attn_mask for multiple heads
+        if attn_mask is not None:
+            assert attn_mask.dim() == 3, "assumes batched attn_mask"
+            attn_mask = attn_mask[:, None, :, :]
+
+        ### combine masks
+        if key_padding_mask is not None and attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_mask = attn_mask | key_padding_mask
+            else:
+                key_padding_mask = torch.where(key_padding_mask, float('-inf'), 0.0)
+                attn_mask = attn_mask + key_padding_mask
+
+        elif key_padding_mask is not None:
+            attn_mask = key_padding_mask
+
+        return attn_mask
+
+    def attention(self, q, k, v, attn_mask=None):
+
+        B, L, D = q.shape
+        dot_dim = D // self.num_heads
+
+        ### reshape qkv for multi-head attention
+        reshape = lambda t: t.view(B, t.shape[1], self.num_heads, dot_dim).transpose(1,2)
+        q = reshape(q)
+        k = reshape(k)
+        v = reshape(v)
+
+        ### mha
+        attn = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
+
+        ### combine heads and project output
+        attn = attn.transpose(1,2).reshape(B, L, D)
+        attn = self.out_proj(attn)
+
+        return attn
 
     def forward(self, x, y=None, c=None, key_padding_mask=None, attn_mask=None):
         """
@@ -132,13 +177,11 @@ class AttentionLayer(nn.Module):
         ### assumes x is of shape (batch_size, seq_len, model_dim)
         q, k, v = self.get_qkv(x_norm, y_norm)
 
-        if not self.batch_first:
-            q = q.permute(1, 0, 2)
-            k = k.permute(1, 0, 2)
-            v = v.permute(1, 0, 2)
+        ### combine key padding and attention masks
+        attn_mask = self.get_attn_mask(key_padding_mask, attn_mask)
 
         ### multi-head attention
-        attn = self.mha(q, k, v, key_padding_mask=key_padding_mask, attn_mask=attn_mask)[0]
+        attn = self.attention(q, k, v, attn_mask=attn_mask)
 
         if self.gated and self.c_dim is not None:
             ### gate attention
@@ -174,9 +217,11 @@ class AttentionLayer(nn.Module):
 class SelfAttentionLayer(AttentionLayer):
     
     def __init__(self, *args, **kwargs):
-        super().__init__(kind="self", *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim)
+        nn.init.xavier_uniform_(self.qkv_proj.weight)
+        nn.init.constant_(self.qkv_proj.bias, 0)
 
     def get_qkv(self, x, y=None):
         q, k ,v = self.qkv_proj(x).chunk(3, dim=-1)
@@ -186,10 +231,14 @@ class SelfAttentionLayer(AttentionLayer):
 class CrossAttentionLayer(AttentionLayer):
 
     def __init__(self, *args, **kwargs):
-        super().__init__(kind="cross", *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.q_proj  = nn.Linear(self.model_dim,   self.model_dim)
         self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim)
+        nn.init.xavier_uniform_(self.q_proj.weight)
+        nn.init.constant_(self.q_proj.bias, 0)
+        nn.init.xavier_uniform_(self.kv_proj.weight)
+        nn.init.constant_(self.kv_proj.bias, 0)
 
     def get_qkv(self, x, y):
         q = self.q_proj(x)
