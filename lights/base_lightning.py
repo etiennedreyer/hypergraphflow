@@ -31,7 +31,9 @@ class BaseLightning(pl.LightningModule):
             self.config['output_norm'] = 'softmax'
         
         if self.config.get('output_norm', None) is None:
-            self.loss = metrics.LAP_loss # default is BCE with logits
+            loss_fn = partial(F.binary_cross_entropy_with_logits, 
+                              pos_weight=torch.tensor(self.config.get('pos_weight', 1.0)))
+            self.loss = partial(metrics.LAP_loss, loss_fn=loss_fn)
             print("Using BCE with logits loss (assumes logits output)")
         elif self.config['output_norm'] == 'sigmoid':
             self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
