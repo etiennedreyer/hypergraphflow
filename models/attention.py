@@ -98,6 +98,10 @@ class AttentionLayer(nn.Module):
 
     def get_attn_mask(self, key_padding_mask=None, attn_mask=None):
 
+        """
+        Note: here, we use the convention that boolean attention mask is True for _masked_ pairs
+        """
+
         if key_padding_mask is None and attn_mask is None:
             return None
 
@@ -137,6 +141,9 @@ class AttentionLayer(nn.Module):
         v = reshape(v)
 
         ### mha
+        ### PyTorch's sdpa expects boolean attn_mask where "True indicates that the element should take part in attention."
+        if (attn_mask is not None) and attn_mask.dtype == torch.bool:
+            attn_mask = ~attn_mask
         attn = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
 
         ### combine heads and project output
@@ -154,7 +161,7 @@ class AttentionLayer(nn.Module):
             y: optional input for cross attention
             c: context tensor
             key_padding_mask: optional mask for padding
-            attn_mask: optional attention mask for MultiheadAttention
+            attn_mask: optional attention mask for scaled_dot_product_attention
         """
         assert self.c_dim is None or c is not None, \
             "context c must be provided if c_dim is not None!"
