@@ -122,16 +122,18 @@ class HyperGraphDataset:
 
             def custom_collate_fn(batch):
                 batch = collate_fn_mini(batch)
+
+                ### prepare incidence matrix
                 inc = batch['incidence_truth']
                 ind = batch['indicator_truth']
-                # ### use topoclusters only (remove tracks)
-                # num_tracks = batch['track'].size(1)
-                # inc = inc[:, :, num_tracks:]
-                # ind = ind[:, num_tracks:]
-                # ### check if any particle has no hits
-                # no_hits_mask = (inc.sum(dim=1) == 0).all(dim=1)
                 im = torch.cat([inc, ind.unsqueeze(-1)], dim=-1)
-                return batch['node']['skip_feat0'], im
+
+                ### prepare node features
+                node_feats = batch['node']['skip_feat0']
+                is_track = batch['node']['is_track']
+                node_feats = torch.cat([node_feats, is_track.unsqueeze(-1)], dim=-1)
+
+                return node_feats, im
 
             self.collate_fn = custom_collate_fn
 
