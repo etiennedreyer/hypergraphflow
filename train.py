@@ -12,6 +12,7 @@ import yaml
 import argparse
 import os
 import random
+import logging
 
 def get_config(config_train, config_model=None, config_dataset=None):
 
@@ -75,12 +76,29 @@ def get_model(config):
     num_ray = config.get('nray', 0)
     if num_ray > 0:
 
-        ### Set log dir with appropriate permissions to avoid ray's default 777
-        log_dir = f"/storage/agrp/dreyet/ray_logs/{os.environ.get('PBS_JOBID', 'local')}"
-        os.makedirs(log_dir, mode=0o755, exist_ok=True)
-        ray.init(num_cpus=num_ray, 
-                 _temp_dir=log_dir,
-                 include_dashboard=False)
+        # --- SECURE TMP DIRECTORY SETUP ---
+        # 1. Get username to create a user-specific folder
+        user = os.environ.get('USER', 'ray_user')
+        base_tmp = f"/tmp/{user}_ray_tmp"
+        
+        # 2. Create directory and FORCE secure permissions (700 = drwx------)
+        os.makedirs(base_tmp, exist_ok=True)
+        os.chmod(base_tmp, 0o700) 
+
+        # 3. Define session specific log dir inside the secure base
+        rank = os.environ.get('LOCAL_RANK', '0')
+        job_id = os.environ.get('PBS_JOBID', 'local').split('.')[0]
+        log_dir = f"{base_tmp}/{job_id}_{rank}"
+        
+        # Create the specific log dir
+        os.makedirs(log_dir, mode=0o700, exist_ok=True)
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_ray, 
+                    _temp_dir=log_dir,
+                    log_to_driver=False,
+                    logging_level=logging.ERROR,
+                    include_dashboard=False)
 
     ### Lightning
     if 'hgflow' in config['model']['name']:
@@ -110,7 +128,7 @@ def get_model(config):
     return model
 
 
-def get_trainer(config, model_name, project_name, log=True, resume_id=None):
+def get_trainer(config, model_name, project_name, log=True, resume_id=None, val_log_interval=1):
 
     logger = None
     callbacks = []
@@ -152,14 +170,19 @@ def get_trainer(config, model_name, project_name, log=True, resume_id=None):
             callbacks.append(scheduler_callback)
 
     ### Training
+    strategy = config.get('strategy', 'auto')
+    if strategy == 'ddp_find_unused_parameters':
+        from pytorch_lightning.strategies import DDPStrategy
+        strategy = DDPStrategy(find_unused_parameters=True)
     trainer = lightning.Trainer(
         accelerator=config.get('accelerator', 'auto'),
         devices=config.get('devices', [0]),
         max_epochs=config['num_epochs'],
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=val_log_interval,
         logger=logger,
         callbacks=callbacks,
-        # precision="16-mixed" if torch.cuda.is_available() else 32,
+        strategy=strategy,
+        precision=config.get('precision', "32-true" if torch.cuda.is_available() else 32),
     )
 
     return trainer
@@ -214,7 +237,10 @@ def main(config, mode="train", checkpoint=None, precision=None, resume=None, ove
         model.load_state_dict(torch.load(checkpoint)['state_dict'])
 
     ### Trainer
-    trainer = get_trainer(config, model.name, ds.name, log=(mode == 'train'), resume_id=resume)
+    trainer = get_trainer(config, model.name, ds.name, 
+                          log=(mode == 'train'), 
+                          resume_id=resume,
+                          val_log_interval=50 if overtrain else 1)
 
     return trainer, model, ds, dls
 

@@ -5,6 +5,7 @@ import yaml
 from models.attention import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
+from models.fourier import RandomFourierEmbedder
 from dataclasses import dataclass
 import math
 
@@ -32,6 +33,7 @@ class HHRM(nn.Module):
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
+        self.fourier_features = self.config['fourier_features']
         self.output_norm = self.config.get('output_norm', None)
 
         ### Hierarchical reasoning parameters
@@ -45,10 +47,19 @@ class HHRM(nn.Module):
         self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
         self.register_buffer("z_H_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
 
+        ### Fourier feature embedding
+        self.num_fourier_features = 0
+        if self.fourier_features:
+            self.num_fourier_features = 20 * self.num_node_features
+            self.fourier_embedder = RandomFourierEmbedder(
+                    input_dim=self.num_node_features,
+                    output_dim=self.num_fourier_features,
+                )
+
         ### Node feature embedding
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
-            input_dim=self.num_node_features,
+            input_dim=self.num_node_features + self.num_fourier_features,
             layers=emb_cfg['layers'],
             output_dim=emb_cfg['output_dim'],
             activation=emb_cfg['activation']
@@ -126,6 +137,9 @@ class HHRM(nn.Module):
                     activation=ind_pred_cfg['activation']
         )
 
+        ### Logit offset
+        self.logit_offset = nn.Parameter(torch.ones(1)*self.config.get('logit_offset', -4.0))
+
     def get_init_state(self):
         return HiddenState(z_L=self.z_L_init, z_H=self.z_H_init)
 
@@ -141,7 +155,8 @@ class HHRM(nn.Module):
             return None
 
     def dot_prod_incidence(self, q, k):
-        return (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+        dot = (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+        return dot + self.logit_offset
 
     def normalize_output(self, im):
         if self.output_norm == 'sigmoid':
@@ -151,9 +166,29 @@ class HHRM(nn.Module):
                 F.softmax(im[..., :-1], dim=1),
                 torch.sigmoid(im[..., -1:])
             ], dim=-1)
+        elif self.output_norm == 'log_softmax':
+            im = torch.cat([
+                F.log_softmax(im[..., :-1], dim=1),
+                torch.sigmoid(im[..., -1:])
+            ], dim=-1)
         elif self.output_norm is not None:
             raise ValueError(f"Unknown output_norm {self.output_norm}")
         return im
+    
+    @staticmethod
+    def preds_to_probs(preds, output_norm):
+        if output_norm is None:
+            probs = torch.sigmoid(preds)
+        elif output_norm in ['sigmoid', 'softmax']:
+            probs = preds
+        elif output_norm == 'log_softmax':
+            probs = torch.cat([
+                torch.exp(preds[..., :-1]), 
+                preds[..., -1:]],
+                dim=-1)
+        else:
+            raise ValueError(f"Unknown output_norm {output_norm}")
+        return probs
 
     def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int,draft=None):
 
@@ -176,6 +211,9 @@ class HHRM(nn.Module):
 
         ### Input embedding
         if input_state.shape[-1] == self.num_node_features:
+            if self.fourier_features:
+                fourier_emb = self.fourier_embedder(input_state)
+                input_state = torch.cat([input_state, fourier_emb], dim=-1)
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
@@ -183,37 +221,37 @@ class HHRM(nn.Module):
         edge_pos_emb = self.edge_embedder(edge_pos_idx)
 
         ### Forward up to last iteration
-        with torch.no_grad():
-            z_H = z_H + edge_pos_emb
-            for iter_H in range(self.iters_H):
-                last_iter_H = (iter_H == self.iters_H - 1)
+        # with torch.no_grad(): HACK!
+        z_H = z_H + edge_pos_emb
+        for iter_H in range(self.iters_H):
+            last_iter_H = (iter_H == self.iters_H - 1)
 
-                for iter_L in range(self.iters_L):
-                    last_iter_L = (iter_L == self.iters_L - 1)
+            for iter_L in range(self.iters_L):
+                last_iter_L = (iter_L == self.iters_L - 1)
 
-                    if not (last_iter_H and last_iter_L):
-                        ### Low-level update
-                        z_L = self.norm_L(z_L + input_state)
-                        t_emb = self.get_time_emb(segment, iter_L, iter_H)
-                        for block in self.CA_L:
-                            z_L = block(z_L, z_H,
-                                        c=t_emb,
-                                        key_padding_mask_SA=node_mask,
-                                        key_padding_mask_CA=edge_mask
-                                        )
-
-                if not last_iter_H:
-                    ### High-level update
-                    z_H = self.norm_H(z_H + edge_pos_emb)
-                    t_emb = self.get_time_emb(segment, self.iters_L - 1, iter_H)
-                    for block in self.CA_H:
-                        z_H = block(z_H, z_L,
+                if not (last_iter_H and last_iter_L):
+                    ### Low-level update
+                    z_L = self.norm_L(z_L + input_state)
+                    t_emb = self.get_time_emb(segment, iter_L, iter_H)
+                    for block in self.CA_L:
+                        z_L = block(z_L, z_H,
                                     c=t_emb,
-                                    key_padding_mask_SA=edge_mask,
-                                    key_padding_mask_CA=node_mask
+                                    key_padding_mask_SA=node_mask,
+                                    key_padding_mask_CA=edge_mask
                                     )
 
-        assert not z_H.requires_grad and not z_L.requires_grad
+            if not last_iter_H:
+                ### High-level update
+                z_H = self.norm_H(z_H + edge_pos_emb)
+                t_emb = self.get_time_emb(segment, self.iters_L - 1, iter_H)
+                for block in self.CA_H:
+                    z_H = block(z_H, z_L,
+                                c=t_emb,
+                                key_padding_mask_SA=edge_mask,
+                                key_padding_mask_CA=node_mask
+                                )
+
+        # assert not z_H.requires_grad and not z_L.requires_grad
 
         ### 1-step gradient approximation
         z_L = self.norm_L(z_L + input_state)

@@ -8,6 +8,7 @@ scheduler: {
 }
 learning_rate: 1.0e-4
 num_epochs: 1000
+pos_weight: 10.0
 num_workers: &W 6
 nray: 8
 seed: 123456

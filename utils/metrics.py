@@ -24,16 +24,24 @@ def ray_lsa(arr, n):
     res = np.concatenate([ray.get(r) for r in res])
     return res
 
-def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'):
+def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none', log_inputs=True):
 
     inc_input  =  input[..., :-1]
     inc_target = target[..., :-1]
     ind_input  =  input[...,  -1:]
     ind_target = target[...,  -1:]
 
-    inc_kld_loss = - inc_target * (inc_input + eps).log()
-    ind_bce_loss = F.binary_cross_entropy(ind_input, ind_target, 
-                                          reduction=reduction)
+    if log_inputs:
+        ### assumes log-softmax input
+        inc_kld_loss = - inc_target * inc_input
+    else:
+        ### assumes regular softmax input
+        inc_kld_loss = - inc_target * (inc_input + eps).log()
+
+    ### Need to cast to float32 to avoid "unsafe to autocast" error
+    with torch.autocast(device_type=input.device.type, enabled=False):
+        ind_bce_loss = F.binary_cross_entropy(ind_input.float(), ind_target.float(), 
+                                            reduction=reduction)
 
     total_loss = torch.cat(
         [inc_kld_loss, 
@@ -43,35 +51,74 @@ def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'
 
     return total_loss
 
-def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None):
+def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False):
 
     if loss_fn is None:
         loss_fn = partial(F.binary_cross_entropy_with_logits)
 
-    get_pdist = lambda x: loss_fn(
-        x.unsqueeze(1).expand(-1, target.size(1), -1, -1), 
-        target.unsqueeze(2).expand(-1, -1, x.size(1), -1),
+    B, K, N = input.shape
+    device = input.device
+
+    ### x has shape (B, K, N)
+    get_cost_matrix_parallel = lambda x: loss_fn(
+        x.unsqueeze(1).expand(-1, K, -1, -1), 
+        target.unsqueeze(2).expand(-1, -1, K, -1),
         reduction='none'
     ).mean(3)
 
-    pdist = get_pdist(input)
-    if masks is not None:
-        for mask in masks:
-            pdist += get_pdist(mask)
+    ### x has shape (B, 1, N)
+    get_cost_matrix_serial = lambda x: loss_fn(
+        x.expand(-1, K, -1),
+        target,
+        reduction='none'
+    ).mean(2)
+    
+    ### Compute lowest-loss permutation (no grad)
+    with torch.no_grad():
 
-    pdist_ = pdist.detach().cpu().numpy()
+        ### allocates (B, K, K, N) tensor
+        if parallel:
+            pdist = get_cost_matrix_parallel(input)
+            if masks is not None:
+                for mask in masks:
+                    pdist += get_cost_matrix_parallel(mask)
+        
+        ### allocates (B, K, N) tensor
+        else:
+            pdist = torch.zeros((B, K, K), device=device)
 
+            for k in range(K):
+                input_k = input[:, k:k+1, :]
+                pdist[:, k, :] = get_cost_matrix_serial(input_k)
+                if masks is not None:
+                    for mask in masks:
+                        mask_k = mask[:, k:k+1, :]
+                        pdist[:, k, :] += get_cost_matrix_serial(mask_k)
+
+    ### (B, K, K) cost matrix
+    cost_matrix = pdist.detach().cpu().numpy()
+
+    ### Solve LSA with Hungarian algorithm
     if n > 0:
-        indices = ray_lsa(pdist_, n)
+        indices = ray_lsa(cost_matrix, n)
     else:
-        indices = np.array([linear_sum_assignment(p) for p in pdist_])
+        indices = np.array([linear_sum_assignment(p) for p in cost_matrix])
 
-    flat_indices = indices.shape[2] * indices[:, 0] + indices[:, 1]
-    losses = torch.gather(pdist.flatten(1,2), 1, torch.from_numpy(flat_indices).to(device=pdist.device))
-    total_loss = losses.mean(1)
+    ### Rearrange target rows for minimal loss
+    target_perm_idx = torch.from_numpy(indices[:,1]).to(device).long() # (B, K)
+    target_perm_idx_expanded = target_perm_idx.unsqueeze(2).expand(-1, -1, N) # (B, K, N)
+    target_aligned = torch.gather(
+        target, 1, target_perm_idx_expanded)
+    
+    ### Compute loss with aligned target
+    total_loss = loss_fn(input, target_aligned, reduction='none')
+    
+    ### Average over matrix dimensions
+    total_loss = total_loss.mean(dim=(1, 2))
 
     if return_indices:
         return total_loss, indices
+
     return total_loss
 
 def _error_count_indicator(gt_inc, pred_inc, d):
@@ -130,6 +177,58 @@ def f1_score(gt, pred, type="adj", **kwargs):
     tp, fp, fn = error_count(type, gt, pred, **kwargs)
     f1 = tp / (tp + 0.5 * (fp + fn) + EPS)
     return f1
+
+def aligned_f1_score(target, pred, edge_mask=None, node_mask=None, threshold=0.5):
+
+    ### Assumes that target has already been aligned to pred
+    ### target, pred: (B, K, N+1)
+    ### edge_mask: (B, K) <- zero where edges are padded
+    ### node_mask: (B, N) <- zero where nodes are padded
+
+    ### Mask padded entries
+    if node_mask is not None:
+        indicator_mask = torch.ones((target.shape[0], 1), device=target.device)  # (B, 1)
+        node_mask = torch.cat([node_mask, indicator_mask], dim=-1)  # (B, N+1)
+        node_mask = node_mask.unsqueeze(1)  # (B, N+1) -> (B, 1, N+1)
+        target = target * node_mask
+        pred = pred * node_mask
+
+    if edge_mask is not None:
+        edge_mask_ = edge_mask.unsqueeze(2)  # (B, K) -> (B, K, 1)
+        target = target * edge_mask_
+        pred = pred * edge_mask_
+
+    ### Convert to binary
+    pred_bin = (pred > threshold).float()
+    target_bin = target.float()
+    
+    ### For each hyperedge (dim -1) compute TP, FP, FN
+    tp = (pred_bin * target_bin).sum(dim=-1)
+    fp = (pred_bin * (1 - target_bin)).sum(dim=-1)
+    fn = ((1 - pred_bin) * target_bin).sum(dim=-1)
+
+    ### Precision
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = (2 * tp) / (2 * tp + fp + fn + 1e-8)
+    
+    # Average over VALID edges only
+    if edge_mask is not None:
+        precision_sum = (precision * edge_mask).sum()
+        recall_sum = (recall * edge_mask).sum()
+        f1_sum = (f1 * edge_mask).sum()
+        N_valid_edges = edge_mask.sum()
+        return {
+            "precision": precision_sum / (N_valid_edges + 1e-8),
+            "recall": recall_sum / (N_valid_edges + 1e-8),
+            "f1": f1_sum / (N_valid_edges + 1e-8)
+        }
+    else:
+        return {
+            "precision": precision.mean(),
+            "recall": recall.mean(),
+            "f1": f1.mean()
+        }
 
 def delaunay_adj_metrics(targ_adj, pred_adj, k=2):
     diag_mask = torch.eye(pred_adj.shape[2]).repeat(pred_adj.shape[0], 1, 1).bool()

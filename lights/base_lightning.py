@@ -41,6 +41,9 @@ class BaseLightning(pl.LightningModule):
         elif self.config['output_norm'] == 'softmax':
             self.loss = partial(metrics.LAP_loss, loss_fn=metrics.kld_plus_ind_loss)
             print("Using KLD incidence and BCE indicator loss (assumes softmax on output)")
+        elif self.config['output_norm'] == 'log_softmax':
+            self.loss = partial(metrics.LAP_loss, loss_fn=partial(metrics.kld_plus_ind_loss, log_inputs=True))
+            print("Using KLD incidence and BCE indicator loss (assumes log-softmax on output)")
         else:
             raise ValueError(f"Unknown output_norm {self.config['output_norm']}")
 

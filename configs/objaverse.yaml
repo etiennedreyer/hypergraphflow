@@ -1,0 +1,11 @@
+name: objaverse_mesh
+D: 3
+# input_dir: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/data/Objaverse/lowpoly/*/*.obj
+input_dir: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/data/Objaverse/lowpoly/merged_000-*.txt
+# input_dir: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/data/Objaverse/lowpoly/merged_000-000.txt
+max_faces: 9999 #256
+max_polygons: 10
+max_points: 2048
+avg_sampled_points_per_face: 16
+# start: 0
+# stop: 100

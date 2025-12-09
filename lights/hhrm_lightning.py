@@ -18,13 +18,20 @@ class HHRMLightning(BaseLightning):
         ### Need to implement deep supervision manually
         self.automatic_optimization = False
 
-    def align_incidence_matrix(self, im_pred, im_true):
+    def align_incidence_matrix(self, im_pred, im_true, indices=None):
 
-        loss, indices = self.loss(im_pred, im_true, return_indices=True)
-        indices = torch.from_numpy(indices[:,1,...]).to(im_pred.device).long()
-        indices = indices.unsqueeze(-1).expand(-1, -1, im_pred.shape[2])
+        '''
+        This aligns the prediction with the target, for visualization purposes.
+        '''
+        if indices is None:
+            loss, indices = self.loss(im_pred, im_true, return_indices=True)
+        else:
+            loss = None
+        target_perm_idx = torch.from_numpy(indices[:,1,:]).to(im_pred.device).long()
+        pred_perm_idx = torch.argsort(target_perm_idx, dim=1)
+        pred_perm_idx = pred_perm_idx.unsqueeze(2).expand(-1, -1, im_pred.shape[2])
 
-        im_pred_aligned = torch.gather(im_pred, 1, indices)
+        im_pred_aligned = torch.gather(im_pred, 1, pred_perm_idx)
 
         return im_pred_aligned, loss, indices
 
@@ -62,13 +69,12 @@ class HHRMLightning(BaseLightning):
             hid_state = hid_state.detach()
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            pred = torch.sigmoid(pred)
+        probs = HHRM.preds_to_probs(pred, self.net.output_norm)
 
         with torch.no_grad():
             logs = {
                 "loss": loss,
-                "mae":  metrics.mae_cardinality(pred, im_truth),
+                "mae":  metrics.mae_cardinality(probs, im_truth),
             }
         self.log_dict({f"{k}/train":v for k,v in logs.items()})
 
@@ -78,34 +84,43 @@ class HHRMLightning(BaseLightning):
 
         node_feats, im_truth = batch
 
+        B, K, N = im_truth.shape
+
+        ### Forward pass
         preds = self(node_feats, return_segments=True)
-        loss = self.loss(preds[-1], im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
+
+        ### Align predictions
+        pred_aligned, loss, indices = self.align_incidence_matrix(preds[-1], im_truth)
+        preds = [self.align_incidence_matrix(pred, im_truth, indices=indices)[0] for pred in preds]
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            probs = [torch.sigmoid(pred) for pred in preds]
-        else:
-            probs = preds
+        probs = [HHRM.preds_to_probs(pred, self.net.output_norm) for pred in preds]
 
-        d_feats = min(node_feats.shape[-1], 3) ### TODO softcode this in config.
+        # d_feats = min(node_feats.shape[-1], 3) ### TODO softcode this in config.
+        ### Deduce padding
+        nodes_mask = ~(torch.isnan(node_feats).any(dim=-1))
+        edges_mask = im_truth[...,-1] > 0.5
+
+        f1_dicts = [metrics.aligned_f1_score(im_truth, prob, edge_mask=edges_mask, node_mask=nodes_mask, threshold=0.5) for prob in probs]
 
         logs = {
-            "loss": loss,
-            "f1": metrics.f1_score(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
-            "precision": metrics.precision(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
-            "recall": metrics.recall(im_truth, probs[-1], type="ind", d_feats=d_feats).mean(0),
+            "loss": loss.mean(),
+            "f1": f1_dicts[-1]["f1"],
+            "precision": f1_dicts[-1]["precision"],
+            "recall": f1_dicts[-1]["recall"],
             "mae": metrics.mae_cardinality(probs[-1], im_truth),
-            # "logit_mean": preds[-1].mean(),
-            # "logit_std": preds[-1].std(),
-            # "logit_min": preds[-1].min(),
-            # "logit_max": preds[-1].max(),
+            "logit_mean": probs[-1].mean(),
+            "logit_std": probs[-1].std(),
+            "logit_min": probs[-1].min(),
+            "logit_max": probs[-1].max(),
         }
 
-        for i, prob in enumerate(probs[:-1]):
+        for i in range(len(probs)-1):
             logs.update({
-                f"f1_s{i}": metrics.f1_score(im_truth, prob, type="ind", d_feats=d_feats).mean(0),
+                f"f1_s{i}": f1_dicts[i]["f1"],
+                # f"f1_s{i}": metrics.f1_score(im_truth, prob, type="ind", d_feats=d_feats).mean(0),
             })
 
-        self.log_dict({f"{k}/val":v for k,v in logs.items()})
+        self.log_dict({f"{k}/val":v for k,v in logs.items()}, sync_dist=True)
 
         return loss
