@@ -4,8 +4,9 @@ D: 3
 input_dir: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/data/Objaverse/lowpoly/merged_000-*.txt
 # input_dir: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/data/Objaverse/lowpoly/merged_000-000.txt
 max_faces: 9999 #256
-max_polygons: 10
-max_points: 2048
-avg_sampled_points_per_face: 16
+max_polygons: 30
+max_points: 1024 #2048
+avg_sampled_points_per_face: 64
+# load_path: /storage/agrp/dreyet/Hypergraphs/hypergraphflow/sampled_points_avg64_polygons30.parquet
 # start: 0
 # stop: 100

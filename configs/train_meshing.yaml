@@ -7,30 +7,30 @@ scheduler: {
   warmup_epochs: 10
 }
 learning_rate: 1.0e-4
-num_epochs: 300
+num_epochs: 1000
 pos_weight: 10.0
-num_workers: &W 2
-nray: 16
+num_workers: &W 4
+nray: 8
 seed: 123456
 accelerator: cuda
-# strategy: ddp #ddp_find_unused_parameters
+strategy: ddp #ddp_find_unused_parameters
 devices: auto
 precision: bf16-mixed
 
 dl_train:
-  total_size: 8000 #40000 #20000 #32000 #50000
+  total_size: 16000 #8000 #40000 #20000 #32000 #50000
   batch_size: 256
   shuffle: true
   num_workers: *W
 
 dl_val:
-  total_size: 800 #3200
+  total_size: 1600 #3200
   batch_size: 256
   shuffle: false
   num_workers: *W
 
 dl_test:
-  total_size: 200 # 3200
-  batch_size: 200
+  total_size: 1600 # 3200
+  batch_size: 256
   shuffle: false
   num_workers: *W

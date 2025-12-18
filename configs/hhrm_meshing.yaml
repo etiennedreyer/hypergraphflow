@@ -44,8 +44,20 @@ indicator_predictor:
     output_dim: 1
     activation: relu
 
+# node_regressor:
+#     input_dim: *H
+#     layers: [128, 64, 32]
+#     output_dim: *F
+#     activation: relu
+
+edge_regressor:
+    input_dim: *H
+    layers: [128, 64, 32]
+    output_dim: 6
+    activation: relu
+
 hrm:
     iters_L: 2
     iters_H: 2
-    segments: 8
+    segments: 6
     use_draft: false

@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 sys.path.append("../recurrently_predicting_hypergraphs/")
 sys.path.append("../HGPflow/")
+from functools import partial
 from torch.utils.data import Dataset, DataLoader, Subset
 from collections import deque
 
@@ -47,8 +48,8 @@ class HyperGraphDataset:
                                        max_points=config.get('max_points', 1024),
                                        avg_sampled_points_per_face=config.get('avg_sampled_points_per_face', 10)
                                     )
-            self.dataset.n_points = [len(v) for v in self.dataset.sampled_points] #self.dataset.vertices]
-            self.dataset.max_facets = max(self.dataset.num_sampled_polygons)
+            self.dataset.n_points = [len(v) for v in self.dataset.sampled_points['point_coords']] #self.dataset.vertices]
+            self.dataset.max_edges = max(self.dataset.num_polygons)
 
         ### Particle Flow
         elif 'particle_flow' in self.name:
@@ -62,7 +63,7 @@ class HyperGraphDataset:
             from hgpflow_v2.dataset.dataset_mini import PflowDatasetMini
             self.dataset = PflowDatasetMini(**ds_kwargs)
             self.dataset.n_points = self.dataset.n_nodes
-            self.dataset.max_facets = self.dataset.max_particles
+            self.dataset.max_edges = self.dataset.max_particles
 
 
         ### Delaunay Triangulation
@@ -78,7 +79,7 @@ class HyperGraphDataset:
             raise NotImplementedError(f"Dataset {self.name} unimplemented.")
 
         self.max_nodes = max(self.dataset.n_points)
-        self.max_edges = self.dataset.max_facets
+        self.max_edges = self.dataset.max_edges
 
         self.in_feats = config['D']
         if 'particle_flow' not in self.name:
@@ -149,22 +150,95 @@ class HyperGraphDataset:
             self.collate_fn = custom_collate_fn
 
         else:
-            from convex_hull_dataset import get_collate_fn
-            self.collate_fn = get_collate_fn(self.max_edges, 
-                                                add_indicator=self.add_indicator)
 
-        if self.pad:
-            base_collate_fn = self.collate_fn
-            def padded_collate_fn(batch):
-                pad_until = max(p.size(0) for p, _ in batch)
-                padded_batch = []
-                for p, i in batch:
-                    p = F.pad(p, (0, 0, 0, pad_until - p.size(0)), value=torch.nan)
-                    i = F.pad(i, (0, pad_until - i.size(1)), value=0)
-                    padded_batch.append((p, i))
-                return base_collate_fn(padded_batch)
+            def collate_fn(batch, max_edges, pad_nodes=False):
 
-            self.collate_fn = padded_collate_fn
+                ### Backward compatibility
+                if isinstance(batch[0], tuple):
+                    assert len(batch[0]) == 2
+                    new_batch = []
+                    for tup in batch:
+                        new_batch.append({
+                            'node_feats': tup[0],
+                            'incidence_matrix': tup[1]
+                        })
+                    batch = new_batch
+
+                max_nodes = max(d['node_feats'].size(0) for d in batch)
+
+                out_dict = {k: [] for k in batch[0].keys()}
+
+                for d in batch:
+
+                    n_edges, n_nodes = d['incidence_matrix'].size()
+                    n_pad_edges = max_edges - n_edges
+                    n_pad_nodes = max_nodes - n_nodes
+
+                    if pad_nodes:
+                        ### Pad to max_nodes
+                        nf = F.pad(d['node_feats'], (0, 0, 0, n_pad_nodes), value=torch.nan)
+                        im = F.pad(d['incidence_matrix'], (0, n_pad_nodes), value=0)
+                        if d.get('node_targets') is not None:
+                            nt = F.pad(d['node_targets'], (0, 0, 0, n_pad_nodes), value=torch.nan)
+                            out_dict['node_targets'].append(nt)
+                        n_nodes = max_nodes
+
+                    ### Pad incidence matrix to max_edges
+                    im = torch.cat([im, torch.zeros(n_pad_edges, n_nodes)], dim=0)
+
+                    ### Add indicator "node"
+                    im = torch.cat([im, torch.zeros(max_edges, 1)], dim=1)
+                    im[:n_edges,-1] = 1.
+
+                    ### Pad edge targets to max_edges
+                    if d.get('node_targets') is not None:
+                        et = F.pad(d['edge_targets'], (0, 0, 0, n_pad_edges), value=torch.nan)
+                        out_dict['edge_targets'].append(et)
+                    
+                    out_dict['node_feats'].append(nf)
+                    out_dict['incidence_matrix'].append(im)
+
+                    ### Handle other keys
+                    for k in d.keys():
+                        if k not in ['node_feats', 'incidence_matrix', 'node_targets', 'edge_targets']:
+                            assert isinstance(d[k], torch.Tensor), "Please use tensors for additional batch values."
+                            out_dict[k].append(d[k])
+
+                for k in out_dict.keys():
+                    out_dict[k] = torch.stack(out_dict[k], dim=0) if len(out_dict[k]) > 0 else None
+
+                return out_dict
+
+            self.collate_fn = partial(collate_fn, max_edges=self.max_edges, pad_nodes=self.pad)
+
+        # if self.pad:
+        #     base_collate_fn = self.collate_fn
+        #     def padded_collate_fn(batch):
+        #         ID = 'node_feats' if isinstance(batch[0], dict) else 0
+        #         pad_until = max(tup[ID].size(0) for tup in batch)
+        #         padded_batch = []
+        #         p_target = None
+        #         for tup in batch:
+        #             if isinstance(tup, dict):
+        #                 p = tup['node_feats']
+        #                 i = tup['incidence_matrix']
+        #                 p_target = tup.get('node_targets', None)
+        #             elif len(tup) == 2:
+        #                 p, i = tup
+        #             elif len(tup) == 3:
+        #                 p, i, p_target = tup
+        #             else:
+        #                 raise ValueError("Unexpected batch tuple length.")
+        #             p = F.pad(p, (0, 0, 0, pad_until - p.size(0)), value=torch.nan)
+        #             i = F.pad(i, (0, pad_until - i.size(1)), value=0)
+        #             if p_target is not None:
+        #                 p_target = F.pad(p_target, (0, 0, 0, pad_until - p_target.size(0)), value=torch.nan)
+        #                 padded_batch.append((p, i, p_target))
+        #             else:
+        #                 padded_batch.append((p, i))
+        #         return base_collate_fn(padded_batch)
+
+        #     self.collate_fn = padded_collate_fn
         
     def get_dataloader(self, dl_config, indices=None):
 
@@ -203,9 +277,21 @@ import glob
 from tqdm import tqdm
 import io
 from collections import OrderedDict
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 class MeshDataset(Dataset):
-    def __init__(self, input_pattern, start=0, stop=9999, max_faces=9999, max_polygons=100, max_points=1024, shuffle=True, avg_sampled_points_per_face=10):
+    def __init__(self, input_pattern, 
+                 start=0, stop=9999, shuffle=True, 
+                 max_faces=9999, max_polygons=100, max_points=1024, 
+                 avg_sampled_points_per_face=64, keep_fraction=0.25,
+                 random_rotate=True,
+                 save_path=None, load_path=None):
+
+        self.max_points = max_points
+        self.random_rotate = random_rotate
+        self.keep_fraction = keep_fraction
 
         ### Collect obj files
         inputs = glob.glob(input_pattern)
@@ -227,7 +313,7 @@ class MeshDataset(Dataset):
         self.num_polygons = []
         for mesh in tqdm(self.meshes, desc="Merging coplanar faces"):
             face_map, n_poly = self.merge_coplanar_face_indices(mesh, max_angle_deg=5.0)
-            self.face_to_polygon_maps.append(face_map)
+            self.face_to_polygon_maps.append(torch.tensor(face_map, dtype=torch.int64))
             self.num_polygons.append(n_poly)
 
         ### Filter by max faces/polygons
@@ -250,58 +336,206 @@ class MeshDataset(Dataset):
             self.face_to_polygon_maps = [self.face_to_polygon_maps[i] for i in indices]
             self.num_polygons = [self.num_polygons[i] for i in indices]
 
-        ### Sample surface points
-        self.sampled_points = []
-        self.sampled_polygons = []
-        self.num_sampled_polygons = []
+        ### Extract vertices
+        self.vertices = [torch.tensor(mesh.vertices, dtype=torch.float32) for mesh in tqdm(self.meshes, desc="Extracting vertices")]
+        self.vertices = [self.normalize_points(v) for v in self.vertices]
+
+        ### Sample points on surface
+        if load_path is None:
+            if save_path is None:
+                save_path = f"sampled_points_avg{avg_sampled_points_per_face}_polygons{max_polygons}.parquet"
+            self.sampled_points = self.sample_points(avg_sampled_points_per_face, save_path=save_path)
+        else:
+            self.sampled_points = self.load_sampled_points(load_path)
+
+
+    def sample_points(self, avg_sampled_points_per_face, save_path=None):
+
+        sampled_dict = {
+            'point_coords': [], # Float tensor (N_points, 3)
+            'point_polygon_indices': [], # Long tensor (N_points,)
+            'polygon_normals': [], # Float tensor (N_polygons, 3)
+            'polygon_centroids': [], # Float tensor (N_polygons, 3)
+        }
+
+        if save_path is not None:
+            ### Create parquet writer
+            parquet_writer = None
+            schema = pa.schema([
+                ('point_coords', pa.list_(pa.list_(pa.float32(), 3))),
+                ('point_polygon_indices', pa.list_(pa.int64())),
+                ('polygon_normals', pa.list_(pa.list_(pa.float32(), 3))),
+                ('polygon_centroids', pa.list_(pa.list_(pa.float32(), 3))),
+            ])
 
         for i, mesh in tqdm(enumerate(self.meshes), desc="Sampling surface points", total=len(self.meshes)):
 
-            ### Sampling
+            ### High-density sampling
             points_to_sample = avg_sampled_points_per_face * len(mesh.faces)
-            if max_points is not None:
-                points_to_sample = min(points_to_sample, max_points)
             point_coords, face_indices = trimesh.sample.sample_surface(mesh, points_to_sample)
+            point_polygon_normals = torch.tensor(mesh.face_normals[face_indices], dtype=torch.float32)
+
+            ### Normalize points
+            point_coords = self.normalize_points(torch.tensor(point_coords, dtype=torch.float32))
 
             ### Convert face indices to polygon indices
-            poly_indices = self.face_to_polygon_maps[i][face_indices]
+            point_poly_indices = self.face_to_polygon_maps[i][face_indices]
 
-            ### For finite sampled points, small polygons may have low sampled points --> require >=3
-            _unique, inverse_indices, counts = np.unique(poly_indices, return_inverse=True, return_counts=True)
-            is_valid_poly = counts >= 3
+            ### Compute polygon normals and centroids by averaging point-wise values
+            # 1) expand indices for scatter
+            ppi_expanded = point_poly_indices.unsqueeze(-1).expand(-1, 3)
+            N_polys = point_poly_indices.max().item() + 1
 
-            ### Mask for sampled points
-            is_valid_point = is_valid_poly[inverse_indices]
+            # 2) initialize target tensors
+            poly_normals = torch.full(
+                (N_polys, 3), 
+                float('nan'),
+                dtype=point_coords.dtype, 
+                device=point_coords.device
+            )
+            poly_centroids = poly_normals.clone()
 
-            ### New contiguous polygon indices (i.e. [F, T, T, F, T] --> [0, 1, 2, 2, 3])
-            poly_index_map = np.cumsum(is_valid_poly) - 1
+            # 3) In-place Scatter Reduce
+            poly_normals.scatter_reduce_(
+                0, 
+                ppi_expanded, 
+                point_polygon_normals, 
+                reduce='mean', 
+                include_self=False
+            )
 
-            ### Apply masks
-            point_coords = point_coords[is_valid_point]
-            poly_indices = poly_index_map[inverse_indices[is_valid_point]]
+            poly_centroids.scatter_reduce_(
+                0, 
+                ppi_expanded, 
+                point_coords, 
+                reduce='mean', 
+                include_self=False
+            )
 
             ### Store
-            self.sampled_points.append(torch.tensor(point_coords, dtype=torch.float32))
-            self.sampled_polygons.append(torch.tensor(poly_indices, dtype=torch.int64))
-            self.num_sampled_polygons.append(is_valid_poly.sum())
+            # print(f"N_polygons: {N_polys}, N_points sampled: {point_coords.shape[0]}")
+            # print(f"point_coords.shape: {point_coords.shape}, point_poly_indices.shape: {point_poly_indices.shape}, poly_normals.shape: {poly_normals.shape}, poly_centroids.shape: {poly_centroids.shape}")
+            # print(f"point_coords.dtype: {point_coords.dtype}, point_poly_indices.dtype: {point_poly_indices.dtype}, poly_normals.dtype: {poly_normals.dtype}, poly_centroids.dtype: {poly_centroids.dtype}")
+            sampled_dict['point_coords'].append(point_coords)
+            sampled_dict['point_polygon_indices'].append(point_poly_indices)
+            sampled_dict['polygon_normals'].append(poly_normals)
+            sampled_dict['polygon_centroids'].append(poly_centroids)
 
-        ### Extract vertices, faces, incidence matrices
-        # self.vertices = [torch.tensor(mesh.vertices, dtype=torch.float32) for mesh in tqdm(self.meshes, desc="Extracting vertices")]
-        # self.vertices = [self.normalize_vertices(v) for v in self.vertices]
-        self.sampled_points = [self.normalize_vertices(v) for v in self.sampled_points]
-        # self.faces = [torch.tensor(mesh.faces, dtype=torch.int64) for mesh in tqdm(self.meshes, desc="Extracting faces")]
-        # self.incidence_matrices = [self.get_incidence_matrix(f, len(v)) 
-        #                             for v, f in tqdm(zip(self.vertices, self.faces),
-        #                                              desc="Computing incidence matrices", 
-        #                      
-        self.incidence_matrices = [self.get_incidence_matrix(idxs) for idxs in tqdm(self.sampled_polygons, desc="Computing incidence matrices")]
+            if save_path is not None:
+                ### Create parquet writer
+                if parquet_writer is None:
+                    parquet_writer = pq.ParquetWriter(save_path, schema)
+
+                ### Create arrow table
+                row_data = {
+                        'point_coords': pa.array(
+                            [sampled_dict['point_coords'][-1].numpy().tolist()],
+                            type=pa.list_(pa.list_(pa.float32(), 3))
+                        ),
+                        'point_polygon_indices': pa.array(
+                            [sampled_dict['point_polygon_indices'][-1].numpy().tolist()], 
+                            type=pa.list_(pa.int64())
+                        ),
+                        'polygon_normals': pa.array(
+                            [sampled_dict['polygon_normals'][-1].numpy().tolist()], 
+                            type=pa.list_(pa.list_(pa.float32(), 3))
+                        ),
+                        'polygon_centroids': pa.array(
+                            [sampled_dict['polygon_centroids'][-1].numpy().tolist()], 
+                            type=pa.list_(pa.list_(pa.float32(), 3))
+                        ),
+                    }
+
+                table = pa.Table.from_pydict(row_data, schema=schema)
+                parquet_writer.write_table(table)
+
+        if save_path is not None:
+            parquet_writer.close()
+            print(f"Saved sampled points to {save_path}.")
+
+        return sampled_dict
+
+    def load_sampled_points(self, load_path):
+
+        sampled_dict = {
+            'point_coords': [],
+            'point_polygon_indices': [],
+            'polygon_normals': [],
+            'polygon_centroids': [],
+        }
+
+        ### Read parquet file
+        table = pq.read_table(load_path)
+        df = table.to_pandas()
+
+        for i in tqdm(range(len(df)), desc=f"Loading sampled points from parquet {load_path}"):
+
+            sampled_dict['point_coords'].append(torch.tensor(df['point_coords'][i], dtype=torch.float32))
+            sampled_dict['point_polygon_indices'].append(torch.tensor(df['point_polygon_indices'][i], dtype=torch.int64))
+            sampled_dict['polygon_normals'].append(torch.tensor(df['polygon_normals'][i], dtype=torch.float32))
+            sampled_dict['polygon_centroids'].append(torch.tensor(df['polygon_centroids'][i], dtype=torch.float32))
+
+        return sampled_dict
+
 
     def __len__(self):
         return len(self.meshes)
 
     def __getitem__(self, idx):
 
-        return self.sampled_points[idx], self.incidence_matrices[idx]
+        point_coords = self.sampled_points['point_coords'][idx]
+        point_poly_indices = self.sampled_points['point_polygon_indices'][idx]
+        poly_normals = self.sampled_points['polygon_normals'][idx]
+        poly_centroids = self.sampled_points['polygon_centroids'][idx]
+
+        ### point-wise polygon targets
+        point_poly_normals = poly_normals[point_poly_indices]
+        point_poly_centroids = poly_centroids[point_poly_indices]
+
+        if 0.0 < self.keep_fraction < 1.0:
+
+            ### Randomly select a subset of up to max_points sampled points
+            N_points = min(int(self.keep_fraction * point_coords.shape[0]), self.max_points)
+            subset = torch.randperm(point_coords.shape[0])[:N_points]
+            subset = subset.sort().values
+            point_coords = point_coords[subset]
+            point_poly_indices = point_poly_indices[subset]
+            point_poly_normals = point_poly_normals[subset]
+            point_poly_centroids = point_poly_centroids[subset]
+
+            ### Get contiguous polygon indices
+            point_poly_indices, is_valid_point = self.get_contiguous_polygon_indices(point_poly_indices)
+
+            ### Drop points that belong to polygons with insufficient points
+            point_coords = point_coords[is_valid_point]
+            point_poly_normals = point_poly_normals[is_valid_point]
+            point_poly_centroids = point_poly_centroids[is_valid_point]
+
+        ### Compute incidence matrices between points and polygons          
+        incidence_matrix = self.get_incidence_matrix(point_poly_indices)
+
+        ### Random rotation augmentation
+        if self.random_rotate:
+            matrix = trimesh.transformations.random_rotation_matrix()[:3,:3]
+            point_coords = point_coords @ torch.tensor(matrix, dtype=torch.float32).T
+            point_poly_normals = point_poly_normals @ torch.tensor(matrix, dtype=torch.float32).T
+            point_poly_centroids = point_poly_centroids @ torch.tensor(matrix, dtype=torch.float32).T
+
+        ### Copy over the polygon targets
+        point_poly_targets = torch.cat([point_poly_normals, point_poly_centroids], dim=-1)
+        N_polygons = point_poly_indices.max().item() + 1
+        polygon_targets = torch.full((N_polygons, 3+3), float('nan'), dtype=torch.float32)
+        polygon_targets[point_poly_indices] = point_poly_targets
+        assert not torch.isnan(polygon_targets).any(), "Some polygons have no targets assigned!"
+
+        out_dict = {
+            'mesh_idx': torch.tensor(idx, dtype=torch.int64),
+            'node_feats': point_coords,
+            'incidence_matrix': incidence_matrix,
+            'node_targets': point_poly_normals,
+            'edge_targets': polygon_targets
+        }
+        return out_dict
 
     def parse_txt_files(self, txt_files):
         obj_files = {}
@@ -322,7 +556,7 @@ class MeshDataset(Dataset):
         print(f"Parsed {len(obj_files)} .obj files from {len(txt_files)} .txt files.")
         return obj_files
 
-    def normalize_vertices(self, vertices):
+    def normalize_points(self, vertices):
         centroid = vertices.mean(dim=0, keepdim=True)
         vertices = vertices - centroid
         scale = torch.norm(vertices, dim=-1).max()
@@ -352,6 +586,7 @@ class MeshDataset(Dataset):
         mesh.remove_infinite_values()
         mesh.merge_vertices(merge_tex=True, merge_norm=True, digits_vertex=3)
         mesh.process(validate=True)
+        mesh.fix_normals()
         return mesh
 
     @staticmethod
@@ -400,19 +635,32 @@ class MeshDataset(Dataset):
 
         return np.array(face_to_polygon_map, dtype=np.int64), num_polygons
 
-    # @staticmethod
-    # def get_incidence_matrix(faces, num_vertices):
+    @staticmethod
+    def get_contiguous_polygon_indices(poly_indices, min_points_per_polygon=3):
 
-    #     num_faces = faces.shape[0]
-    #     deg_faces = faces.shape[1]
+        '''
+        Inputs:
+            poly_indices: tensor of shape [num_points], polygon index for each point
+            min_points_per_polygon: int, minimum number of points required for a polygon to be valid
+        Outputs:
+            new_poly_indices: tensor of shape [num_valid_points], new contiguous polygon indices for valid points
+            is_valid_point: tensor of shape [num_points], boolean mask indicating valid points
+        '''
 
-    #     incidence_matrix = torch.zeros((num_faces, num_vertices), dtype=torch.bool)
+        ### For finite sampled points, small polygons may have low sampled points --> require >=3
+        _unique, inverse_indices, counts = torch.unique(poly_indices, return_inverse=True, return_counts=True)
+        is_valid_poly = counts >= min_points_per_polygon
 
-    #     row_indices = torch.arange(num_faces).unsqueeze(1).repeat(1, deg_faces).flatten()
-    #     col_indices = faces.flatten()
+        ### Mask for sampled points
+        is_valid_point = is_valid_poly[inverse_indices]
 
-    #     incidence_matrix[row_indices, col_indices] = True
-    #     return incidence_matrix
+        ### New contiguous polygon indices (i.e. [F, T, T, F, T] --> [0, 1, 2, 2, 3])
+        poly_index_map = torch.cumsum(is_valid_poly, dim=0) - 1
+        new_poly_indices = poly_index_map[inverse_indices[is_valid_point]]
+
+        assert new_poly_indices.max().item() + 1 == is_valid_poly.sum().item()
+
+        return new_poly_indices, is_valid_point
 
     @staticmethod
     def get_incidence_matrix(face_indices):

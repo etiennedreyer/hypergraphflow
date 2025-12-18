@@ -137,6 +137,30 @@ class HHRM(nn.Module):
                     activation=ind_pred_cfg['activation']
         )
 
+        ### Node regressor
+        if "node_regressor" in self.config:
+            node_reg_cfg = self.config["node_regressor"]
+            self.node_regressor = MLP(
+                input_dim=node_reg_cfg['input_dim'],
+                layers=node_reg_cfg['layers'],
+                output_dim=node_reg_cfg['output_dim'],
+                activation=node_reg_cfg['activation']
+            )
+        else:
+            self.node_regressor = None
+
+        ### Edge regressor
+        if "edge_regressor" in self.config:
+            edge_reg_cfg = self.config["edge_regressor"]
+            self.edge_regressor = MLP(
+                input_dim=edge_reg_cfg['input_dim'],
+                layers=edge_reg_cfg['layers'],
+                output_dim=edge_reg_cfg['output_dim'],
+                activation=edge_reg_cfg['activation']
+            )
+        else:
+            self.edge_regressor = None
+
         ### Logit offset
         self.logit_offset = nn.Parameter(torch.ones(1)*self.config.get('logit_offset', -4.0))
 
@@ -221,7 +245,7 @@ class HHRM(nn.Module):
         edge_pos_emb = self.edge_embedder(edge_pos_idx)
 
         ### Forward up to last iteration
-        # with torch.no_grad(): HACK!
+        # with torch.no_grad():
         z_H = z_H + edge_pos_emb
         for iter_H in range(self.iters_H):
             last_iter_H = (iter_H == self.iters_H - 1)
@@ -283,4 +307,17 @@ class HHRM(nn.Module):
         ### new state
         state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
 
-        return im, state
+        out_dict = {"incidence_matrix": im, "state": state}
+
+        if self.node_regressor is not None:
+            node_predictions = self.node_regressor(z_L)
+            if node_mask is not None:
+                node_predictions[node_mask] *= 0.
+            out_dict["node_predictions"] = node_predictions
+            out_dict["node_mask"] = node_mask
+
+        if self.edge_regressor is not None:
+            edge_predictions = self.edge_regressor(z_H)
+            out_dict["edge_predictions"] = edge_predictions
+
+        return out_dict
