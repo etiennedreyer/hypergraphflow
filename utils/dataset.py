@@ -7,7 +7,7 @@ sys.path.append("../recurrently_predicting_hypergraphs/")
 sys.path.append("../HGPflow/")
 from functools import partial
 from torch.utils.data import Dataset, DataLoader, Subset
-from collections import deque
+from collections import deque, defaultdict
 
 class HyperGraphDataset:
 
@@ -50,6 +50,7 @@ class HyperGraphDataset:
                                     )
             self.dataset.n_points = [len(v) for v in self.dataset.sampled_points['point_coords']] #self.dataset.vertices]
             self.dataset.max_edges = max(self.dataset.num_polygons)
+            self.dataset.max_hhedges = max(self.dataset.num_vertices)
 
         ### Particle Flow
         elif 'particle_flow' in self.name:
@@ -80,6 +81,7 @@ class HyperGraphDataset:
 
         self.max_nodes = max(self.dataset.n_points)
         self.max_edges = self.dataset.max_edges
+        self.max_hhedges = getattr(self.dataset, 'max_hhedges', None)
 
         self.in_feats = config['D']
         if 'particle_flow' not in self.name:
@@ -88,14 +90,6 @@ class HyperGraphDataset:
             self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
 
         ### overwrite max cardinality
-        if 'num_edges' in config:
-            if config['num_edges'] >= self.max_edges:
-                self.max_edges = config['num_edges']
-            else:
-                raise ValueError(
-                    f"num_edges in config is smaller than max in the dataset: "
-                    f"{config['num_edges']} < {self.max_edges}!"
-                )
         if 'num_nodes' in config:
             if config['num_nodes'] >= self.max_nodes:
                 self.max_nodes = config['num_nodes']
@@ -104,7 +98,22 @@ class HyperGraphDataset:
                     f"num_nodes in config is smaller than max in the dataset: "
                     f"{config['num_nodes']} < {self.max_nodes}!"
                 )
-
+        if 'num_edges' in config:
+            if config['num_edges'] >= self.max_edges:
+                self.max_edges = config['num_edges']
+            else:
+                raise ValueError(
+                    f"num_edges in config is smaller than max in the dataset: "
+                    f"{config['num_edges']} < {self.max_edges}!"
+                )
+        if 'num_hhedges' in config:
+            if config['num_hhedges'] >= self.dataset.max_hhedges:
+                self.max_hhedges = config['num_hhedges']
+            else:
+                raise ValueError(
+                    f"num_hhedges in config is smaller than max in the dataset: "
+                    f"{config['num_hhedges']} < {self.dataset.max_hhedges}!"
+                )
 
     def get_sampler(self, dataset=None, n_points=None):
 
@@ -151,7 +160,7 @@ class HyperGraphDataset:
 
         else:
 
-            def collate_fn(batch, max_edges, pad_nodes=False):
+            def collate_fn(batch, max_edges, pad_nodes=False, max_hhedges=None):
 
                 ### Backward compatibility
                 if isinstance(batch[0], tuple):
@@ -165,6 +174,7 @@ class HyperGraphDataset:
                     batch = new_batch
 
                 max_nodes = max(d['node_feats'].size(0) for d in batch)
+                max_edges_batch = max(d['incidence_matrix'].size(0) for d in batch)
 
                 out_dict = {k: [] for k in batch[0].keys()}
 
@@ -198,9 +208,28 @@ class HyperGraphDataset:
                     out_dict['node_feats'].append(nf)
                     out_dict['incidence_matrix'].append(im)
 
+                    if 'vertex_polygon_incidence_matrix' in d:
+                        assert max_hhedges is not None, "Please provide max_hhedges for padding vertex_polygon_incidence_matrix."
+                        n_hhedges, n_hnodes = d['vertex_polygon_incidence_matrix'].size()
+                        n_pad_hhedges = max_hhedges - n_hhedges
+                        n_pad_hnodes = max_edges_batch - n_hnodes
+                        
+                        vp_im = F.pad(d['vertex_polygon_incidence_matrix'], (0, n_pad_hnodes), value=0)
+                        if d.get('vertex_targets') is not None:
+                            vt = F.pad(d['vertex_targets'], (0, 0, 0, n_pad_hnodes), value=torch.nan)
+                            out_dict['vertex_targets'].append(vt)
+                        n_hnodes = max_edges_batch
+                        vp_im = torch.cat([vp_im, torch.zeros(n_pad_hhedges, n_hnodes)], dim=0)
+                        ### add indicator "hnode"
+                        vp_im = torch.cat([vp_im, torch.zeros(max_hhedges, 1)], dim=1)
+                        vp_im[:n_hhedges,-1] = 1.
+                        out_dict['vertex_polygon_incidence_matrix'].append(vp_im)
+
+
                     ### Handle other keys
                     for k in d.keys():
-                        if k not in ['node_feats', 'incidence_matrix', 'node_targets', 'edge_targets']:
+                        if k not in ['node_feats', 'incidence_matrix', 'node_targets', 'edge_targets', 
+                                     'vertex_polygon_incidence_matrix', 'vertex_targets']:
                             assert isinstance(d[k], torch.Tensor), "Please use tensors for additional batch values."
                             out_dict[k].append(d[k])
 
@@ -209,7 +238,8 @@ class HyperGraphDataset:
 
                 return out_dict
 
-            self.collate_fn = partial(collate_fn, max_edges=self.max_edges, pad_nodes=self.pad)
+            self.collate_fn = partial(collate_fn, max_edges=self.max_edges, pad_nodes=self.pad, 
+                                                  max_hhedges=self.max_hhedges)
 
         # if self.pad:
         #     base_collate_fn = self.collate_fn
@@ -284,8 +314,8 @@ import pyarrow.parquet as pq
 class MeshDataset(Dataset):
     def __init__(self, input_pattern, 
                  start=0, stop=9999, shuffle=True, 
-                 max_faces=9999, max_polygons=100, max_points=1024, 
-                 avg_sampled_points_per_face=64, keep_fraction=0.25,
+                 max_faces=9999, max_polygons=100, max_points=2056, 
+                 avg_sampled_points_per_face=64, keep_fraction=0.50,
                  random_rotate=True,
                  save_path=None, load_path=None):
 
@@ -339,6 +369,21 @@ class MeshDataset(Dataset):
         ### Extract vertices
         self.vertices = [torch.tensor(mesh.vertices, dtype=torch.float32) for mesh in tqdm(self.meshes, desc="Extracting vertices")]
         self.vertices = [self.normalize_points(v) for v in self.vertices]
+
+        ### Get perimeter vertices and incidence with polygons
+        self.perimeter_vertex_indices = []
+        self.perimeter_vertex_coordinates = [] 
+        self.vertex_polygon_incidence = []
+        self.num_vertices = []
+        for mesh, face_to_poly_map in tqdm(zip(self.meshes, self.face_to_polygon_maps), 
+                                                total=len(self.meshes), desc="Computing perimeter vertices"):
+
+            perimeter_vertices, perimeter_coords, vertex_poly_incidence = \
+                 self.get_perimeter_vertices(mesh, face_to_poly_map)
+            self.perimeter_vertex_indices.append(perimeter_vertices)
+            self.perimeter_vertex_coordinates.append(perimeter_coords)
+            self.vertex_polygon_incidence.append(vertex_poly_incidence)
+            self.num_vertices.append(len(perimeter_vertices))
 
         ### Sample points on surface
         if load_path is None:
@@ -413,9 +458,6 @@ class MeshDataset(Dataset):
             )
 
             ### Store
-            # print(f"N_polygons: {N_polys}, N_points sampled: {point_coords.shape[0]}")
-            # print(f"point_coords.shape: {point_coords.shape}, point_poly_indices.shape: {point_poly_indices.shape}, poly_normals.shape: {poly_normals.shape}, poly_centroids.shape: {poly_centroids.shape}")
-            # print(f"point_coords.dtype: {point_coords.dtype}, point_poly_indices.dtype: {point_poly_indices.dtype}, poly_normals.dtype: {poly_normals.dtype}, poly_centroids.dtype: {poly_centroids.dtype}")
             sampled_dict['point_coords'].append(point_coords)
             sampled_dict['point_polygon_indices'].append(point_poly_indices)
             sampled_dict['polygon_normals'].append(poly_normals)
@@ -455,7 +497,7 @@ class MeshDataset(Dataset):
 
         return sampled_dict
 
-    def load_sampled_points(self, load_path):
+    def load_sampled_points(self, load_path): # TODO: check
 
         sampled_dict = {
             'point_coords': [],
@@ -492,6 +534,10 @@ class MeshDataset(Dataset):
         point_poly_normals = poly_normals[point_poly_indices]
         point_poly_centroids = poly_centroids[point_poly_indices]
 
+        ### perimeter vertices, their coordinates, and incidence matrix with polygons
+        perimeter_vertex_coords = self.perimeter_vertex_coordinates[idx]
+        vertex_poly_incidence = self.vertex_polygon_incidence[idx]
+
         if 0.0 < self.keep_fraction < 1.0:
 
             ### Randomly select a subset of up to max_points sampled points
@@ -504,12 +550,20 @@ class MeshDataset(Dataset):
             point_poly_centroids = point_poly_centroids[subset]
 
             ### Get contiguous polygon indices
-            point_poly_indices, is_valid_point = self.get_contiguous_polygon_indices(point_poly_indices)
+            point_poly_indices, is_valid_poly, is_valid_point = self.get_contiguous_polygon_indices(point_poly_indices)
 
-            ### Drop points that belong to polygons with insufficient points
-            point_coords = point_coords[is_valid_point]
-            point_poly_normals = point_poly_normals[is_valid_point]
-            point_poly_centroids = point_poly_centroids[is_valid_point]
+            if not is_valid_point.all():
+                ### Drop points that belong to polygons with insufficient points
+                point_coords = point_coords[is_valid_point]
+                point_poly_normals = point_poly_normals[is_valid_point]
+                point_poly_centroids = point_poly_centroids[is_valid_point]
+
+            if not is_valid_poly.all():
+                ### Drop invalid polygons from perimeter vertices and incidence matrix
+                vertex_poly_incidence = vertex_poly_incidence[:, is_valid_poly]
+                is_valid_vertex = vertex_poly_incidence.any(dim=1)
+                perimeter_vertex_coords = perimeter_vertex_coords[is_valid_vertex]
+                vertex_poly_incidence = vertex_poly_incidence[is_valid_vertex, :]
 
         ### Compute incidence matrices between points and polygons          
         incidence_matrix = self.get_incidence_matrix(point_poly_indices)
@@ -520,6 +574,7 @@ class MeshDataset(Dataset):
             point_coords = point_coords @ torch.tensor(matrix, dtype=torch.float32).T
             point_poly_normals = point_poly_normals @ torch.tensor(matrix, dtype=torch.float32).T
             point_poly_centroids = point_poly_centroids @ torch.tensor(matrix, dtype=torch.float32).T
+            perimeter_vertex_coords = perimeter_vertex_coords @ torch.tensor(matrix, dtype=torch.float32).T
 
         ### Copy over the polygon targets
         point_poly_targets = torch.cat([point_poly_normals, point_poly_centroids], dim=-1)
@@ -530,10 +585,15 @@ class MeshDataset(Dataset):
 
         out_dict = {
             'mesh_idx': torch.tensor(idx, dtype=torch.int64),
+            'num_nodes': torch.tensor(point_coords.shape[0], dtype=torch.int64),
+            'num_polygons': torch.tensor(N_polygons, dtype=torch.int64),
+            'num_vertices': torch.tensor(perimeter_vertex_coords.shape[0], dtype=torch.int64),
             'node_feats': point_coords,
             'incidence_matrix': incidence_matrix,
             'node_targets': point_poly_normals,
-            'edge_targets': polygon_targets
+            'edge_targets': polygon_targets,
+            'vertex_polygon_incidence_matrix': vertex_poly_incidence,
+            'vertex_targets': perimeter_vertex_coords,
         }
         return out_dict
 
@@ -585,6 +645,7 @@ class MeshDataset(Dataset):
     def clean_mesh(mesh):
         mesh.remove_infinite_values()
         mesh.merge_vertices(merge_tex=True, merge_norm=True, digits_vertex=3)
+        mesh.remove_duplicate_faces()
         mesh.process(validate=True)
         mesh.fix_normals()
         return mesh
@@ -660,7 +721,105 @@ class MeshDataset(Dataset):
 
         assert new_poly_indices.max().item() + 1 == is_valid_poly.sum().item()
 
-        return new_poly_indices, is_valid_point
+        return new_poly_indices, is_valid_poly, is_valid_point
+
+    @staticmethod
+    def get_perimeter_vertices(mesh, face_to_polygon_map, min_corner_angle_deg=15.0):
+
+        num_polygons = int(face_to_polygon_map.max()) + 1
+        num_tri_vertices = len(mesh.vertices)
+        vertex_poly_incidence = torch.zeros((num_tri_vertices, num_polygons), dtype=torch.bool)
+
+        for poly_idx in range(num_polygons):
+
+            ### A list of 3-vertex indices
+            face_mask = torch.where(face_to_polygon_map == poly_idx)[0]
+            poly_faces = mesh.faces[face_mask.numpy()]
+
+            if len(poly_faces) == 0:
+                raise ValueError(f"Polygon {poly_idx} has no faces!")
+
+            ### A list of 2-vertex edges
+            edges = np.concatenate([
+                poly_faces[:, [0, 1]],
+                poly_faces[:, [1, 2]],
+                poly_faces[:, [2, 0]],
+            ], axis=0)
+
+            ### reversed edges are identical
+            edges = np.sort(edges, axis=1)
+
+            unique_edge, counts = np.unique(edges, axis=0, return_counts=True)
+
+            ### Edges internal to the polygon appear twice, perimeter edges only once
+            perimeter_edges = unique_edge[counts == 1]
+
+            ### Shake out and count how often each vertex appears in perimeter edges
+            p_verts_flat = perimeter_edges.flatten()
+            v_unique, v_counts = np.unique(p_verts_flat, return_counts=True)
+
+            ### Identify vertices that connect exactly two perimeter edges
+            is_standard = v_counts == 2
+            v_standard = v_unique[is_standard]
+
+            ### Opt to keep non-standard ones by default
+            v_junction = v_unique[~is_standard]
+
+            ### Next, for the standard vertices, keep only those that open by more than 5 degrees
+            if len(v_standard) > 0:
+                edge_is_standard_mask = np.any(np.isin(perimeter_edges, v_standard), axis=1)
+
+                e_standard = perimeter_edges[edge_is_standard_mask]
+
+                ### Construct a list of edges with the goal of placing neighboring edges side-by-side
+                e_pairs = np.concatenate([
+                    e_standard,              # [[a, b], [b, c], ... [a, e]]
+                    e_standard[:, [1, 0]]    # [[b, a], [c, b], ... [e, a]]  
+                ], axis=0)
+
+                ### We only need the angles corresponding to standard vertices on those edges
+                e_pairs = e_pairs[ np.isin(e_pairs[:, 0], v_standard) ]
+
+                ### Arange so that edges sharing a common src/dst vertex are adjacent
+                e_pairs = e_pairs[ np.argsort(e_pairs[:, 0]) ]
+                ### At this point there should be exactly two entries per src vertex
+
+                ### Extract [c, a], [c, b] ==> c, a, b vertices for angle computation
+                ### Note: corners are a->c->b with (c for center)
+                c_verts = e_pairs[0::2, 0]
+                a_verts = e_pairs[0::2, 1]
+                b_verts = e_pairs[1::2, 1]
+
+                c_coords = mesh.vertices[c_verts]
+                a_coords = mesh.vertices[a_verts]
+                b_coords = mesh.vertices[b_verts]
+
+                vec_ac = c_coords - a_coords
+                vec_cb = b_coords - c_coords
+
+                len_ac = np.sqrt((vec_ac**2).sum(axis=1, keepdims=True)) + 1e-8
+                len_cb = np.sqrt((vec_cb**2).sum(axis=1, keepdims=True)) + 1e-8
+
+                ### Dot prod = element-wise multiplication, then sum over spatial dims
+                dot_ac_cb = ((vec_ac / len_ac) * (vec_cb / len_cb)).sum(axis=1)
+
+                ### Require angle > 5 degrees ==> cos(angle) < cos(5 deg)
+                valid_corners = dot_ac_cb < np.cos(np.deg2rad(min_corner_angle_deg))
+                v_standard = c_verts[valid_corners]
+
+            perimeter_vertices_local = np.concatenate([v_standard, v_junction], axis=0)
+
+            ### Update incidence matrix
+            vertex_poly_incidence[perimeter_vertices_local, poly_idx] = True
+
+        ### Keep only perimeter vertices
+        perimeter_vertices_global = torch.where(vertex_poly_incidence.any(dim=1))[0]
+        vertex_poly_incidence = vertex_poly_incidence[perimeter_vertices_global, :]
+
+        ### Extract coordinates of these perimeter vertices
+        perimeter_coords = torch.tensor(mesh.vertices[perimeter_vertices_global.numpy()], dtype=torch.float32)
+
+        return perimeter_vertices_global, perimeter_coords, vertex_poly_incidence
 
     @staticmethod
     def get_incidence_matrix(face_indices):
