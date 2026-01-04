@@ -1,0 +1,13 @@
+name: synthetic_mesh
+D: 3
+input_dir:
+  D: 3
+  N: [4, 12]
+  norm: false
+  size: 120000
+max_faces: 9999 #256
+max_polygons: 36
+max_points: 1024
+avg_sampled_points_per_face: 64
+keep_fraction: 0.5
+random_rotate: true

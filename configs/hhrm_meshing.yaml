@@ -22,7 +22,7 @@ node_CA_L:
     model_dim: *H
     c_dim: *T
     num_heads: 4
-    num_layers: 4
+    num_layers: 6
     gated: false
     scaling: true
     activation: silu
@@ -32,7 +32,7 @@ edge_CA_H:
     model_dim: *H
     c_dim: *T
     num_heads: 4
-    num_layers: 4
+    num_layers: 6
     gated: false
     scaling: true
     activation: silu
@@ -50,14 +50,39 @@ indicator_predictor:
 #     output_dim: *F
 #     activation: relu
 
-edge_regressor:
+# edge_regressor:
+#     input_dim: *H
+#     layers: [128, 64, 32]
+#     output_dim: 6
+#     activation: relu
+
+### Ultraedge components
+num_ultraedges: &M 20
+ultraedge_CA_U:
+    model_dim: *H
+    c_dim: *T
+    num_heads: 4
+    num_layers: 6
+    gated: false
+    scaling: true
+    activation: silu
+    ffn_factor: 2
+
+ultraindicator_predictor:
     input_dim: *H
     layers: [128, 64, 32]
-    output_dim: 6
+    output_dim: 1
     activation: relu
+
+# ultraedge_regressor:
+#     input_dim: *H
+#     layers: [128, 64, 32]
+#     output_dim: 3
+#     activation: relu
 
 hrm:
     iters_L: 2
     iters_H: 2
+    iters_U: 2
     segments: 6
     use_draft: false

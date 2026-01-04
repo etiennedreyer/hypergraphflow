@@ -229,6 +229,8 @@ def main(config, mode="train", checkpoint=None, precision=None, resume=None, ove
         config['model']['num_node_features'] = ds.in_feats
     if 'num_edges' in config['model']:
         config['model']['num_edges'] = ds.max_edges
+    if 'num_ultraedges' in config['model']:
+        config['model']['num_ultraedges'] = ds.max_hhedges
     model = get_model(config)
 
     ### Checkpoint
@@ -240,7 +242,7 @@ def main(config, mode="train", checkpoint=None, precision=None, resume=None, ove
     trainer = get_trainer(config, model.name, ds.name, 
                           log=(mode == 'train'), 
                           resume_id=resume,
-                          val_log_interval=50 if overtrain else 1)
+                          val_log_interval=5 if overtrain else 1)
 
     return trainer, model, ds, dls
 

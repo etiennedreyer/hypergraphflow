@@ -27,7 +27,7 @@ class HyperGraphDataset:
 
         ### Convex Hull
         if 'convex_hull' in self.name:
-            from convex_hull_dataset import ConvexHullData
+            # from convex_hull_dataset import ConvexHullData
 
             self.dataset = ConvexHullData(
                 n_range=torch.arange(config['N'][0], config['N'][1]),
@@ -46,7 +46,9 @@ class HyperGraphDataset:
                                        max_faces=config.get('max_faces', None),
                                        max_polygons=config.get('max_polygons', 100),
                                        max_points=config.get('max_points', 1024),
-                                       avg_sampled_points_per_face=config.get('avg_sampled_points_per_face', 10)
+                                       avg_sampled_points_per_face=config.get('avg_sampled_points_per_face', 10),
+                                       keep_fraction=config.get('keep_fraction', 0.5),
+                                       random_rotate=config.get('random_rotate', True)
                                     )
             self.dataset.n_points = [len(v) for v in self.dataset.sampled_points['point_coords']] #self.dataset.vertices]
             self.dataset.max_edges = max(self.dataset.num_polygons)
@@ -212,14 +214,14 @@ class HyperGraphDataset:
                         assert max_hhedges is not None, "Please provide max_hhedges for padding vertex_polygon_incidence_matrix."
                         n_hhedges, n_hnodes = d['vertex_polygon_incidence_matrix'].size()
                         n_pad_hhedges = max_hhedges - n_hhedges
-                        n_pad_hnodes = max_edges_batch - n_hnodes
+                        n_pad_hnodes = max_edges - n_hnodes
                         
                         vp_im = F.pad(d['vertex_polygon_incidence_matrix'], (0, n_pad_hnodes), value=0)
                         if d.get('vertex_targets') is not None:
-                            vt = F.pad(d['vertex_targets'], (0, 0, 0, n_pad_hnodes), value=torch.nan)
+                            vt = F.pad(d['vertex_targets'], (0, 0, 0, n_pad_hhedges), value=torch.nan)
                             out_dict['vertex_targets'].append(vt)
                         n_hnodes = max_edges_batch
-                        vp_im = torch.cat([vp_im, torch.zeros(n_pad_hhedges, n_hnodes)], dim=0)
+                        vp_im = torch.cat([vp_im, torch.zeros(n_pad_hhedges, max_edges)], dim=0)
                         ### add indicator "hnode"
                         vp_im = torch.cat([vp_im, torch.zeros(max_hhedges, 1)], dim=1)
                         vp_im[:n_hhedges,-1] = 1.
@@ -323,22 +325,37 @@ class MeshDataset(Dataset):
         self.random_rotate = random_rotate
         self.keep_fraction = keep_fraction
 
-        ### Collect obj files
-        inputs = glob.glob(input_pattern)
-        if input_pattern.endswith('.txt'):
-            print("Extracting merged .obj files from txt file...")
-            self.obj_files = self.parse_txt_files(inputs)
-        elif input_pattern.endswith('.obj') or input_pattern.endswith('.off'):
-            self.obj_files = OrderedDict((f, f) for f in inputs)
+        ### Create synthetic dataset
+        if isinstance(input_pattern, dict):
+            config = input_pattern
+            print("Creating synthetic mesh dataset...")
+            convex_hull_dataset = ConvexHullData(
+                n_range=torch.arange(config['N'][0], config['N'][1]),
+                dim=config['D'],
+                unit_norm=config.get('norm', False),
+                length=config['size'],
+                get_meshes=True
+            )
+            self.meshes = convex_hull_dataset.meshes
+            self.obj_files = { str(i): '' for i in range(len(self.meshes)) }
+        else:
+            ### Collect obj files
+            inputs = glob.glob(input_pattern)
+            if input_pattern.endswith('.txt'):
+                print("Extracting merged .obj files from txt file...")
+                self.obj_files = self.parse_txt_files(inputs)
+            elif input_pattern.endswith('.obj') or input_pattern.endswith('.off'):
+                self.obj_files = OrderedDict((f, f) for f in inputs)
 
-        ### Select subset and shuffle
-        self.obj_files = {f: obj for i, (f, obj) in enumerate(self.obj_files.items()) if start <= i < stop}
-        if shuffle:
-            self.obj_files = dict(sorted(self.obj_files.items(), key=lambda item: np.random.rand()))
+            ### Select subset and shuffle
+            self.obj_files = {f: obj for i, (f, obj) in enumerate(self.obj_files.items()) if start <= i < stop}
+            if shuffle:
+                self.obj_files = dict(sorted(self.obj_files.items(), key=lambda item: np.random.rand()))
 
-        ### Load meshes and clean
-        self.meshes = [self.get_mesh(obj) for obj in tqdm(self.obj_files.values(), desc="Loading meshes")]
-        self.meshes = [self.clean_mesh(mesh) for mesh in tqdm(self.meshes, desc="Cleaning meshes")]
+            ### Load meshes and clean
+            self.meshes = [self.get_mesh(obj) for obj in tqdm(self.obj_files.values(), desc="Loading meshes")]
+            self.meshes = [self.clean_mesh(mesh) for mesh in tqdm(self.meshes, desc="Cleaning meshes")]
+
         self.face_to_polygon_maps = []
         self.num_polygons = []
         for mesh in tqdm(self.meshes, desc="Merging coplanar faces"):
@@ -367,23 +384,26 @@ class MeshDataset(Dataset):
             self.num_polygons = [self.num_polygons[i] for i in indices]
 
         ### Extract vertices
-        self.vertices = [torch.tensor(mesh.vertices, dtype=torch.float32) for mesh in tqdm(self.meshes, desc="Extracting vertices")]
-        self.vertices = [self.normalize_points(v) for v in self.vertices]
+        self.vertices = []
+        self.centroids = []
+        self.scales = []
+        for mesh in tqdm(self.meshes, desc="Extracting vertices and norm factors"):
+            vertices, centroid, scale = self.normalize_points(torch.tensor(mesh.vertices, dtype=torch.float32), return_params=True)
+            self.vertices.append(vertices)
+            self.centroids.append(centroid)
+            self.scales.append(scale)
 
         ### Get perimeter vertices and incidence with polygons
         self.perimeter_vertex_indices = []
-        self.perimeter_vertex_coordinates = [] 
         self.vertex_polygon_incidence = []
         self.num_vertices = []
         for mesh, face_to_poly_map in tqdm(zip(self.meshes, self.face_to_polygon_maps), 
-                                                total=len(self.meshes), desc="Computing perimeter vertices"):
+                                            total=len(self.meshes), desc="Computing perimeter vertices"):
 
-            perimeter_vertices, perimeter_coords, vertex_poly_incidence = \
-                 self.get_perimeter_vertices(mesh, face_to_poly_map)
-            self.perimeter_vertex_indices.append(perimeter_vertices)
-            self.perimeter_vertex_coordinates.append(perimeter_coords)
+            perimeter_vertex_indices, vertex_poly_incidence = self.get_perimeter_vertices(mesh, face_to_poly_map)
+            self.perimeter_vertex_indices.append(perimeter_vertex_indices)
             self.vertex_polygon_incidence.append(vertex_poly_incidence)
-            self.num_vertices.append(len(perimeter_vertices))
+            self.num_vertices.append(len(perimeter_vertex_indices))
 
         ### Sample points on surface
         if load_path is None:
@@ -421,7 +441,7 @@ class MeshDataset(Dataset):
             point_polygon_normals = torch.tensor(mesh.face_normals[face_indices], dtype=torch.float32)
 
             ### Normalize points
-            point_coords = self.normalize_points(torch.tensor(point_coords, dtype=torch.float32))
+            point_coords = (torch.tensor(point_coords, dtype=torch.float32) - self.centroids[i]) / self.scales[i]
 
             ### Convert face indices to polygon indices
             point_poly_indices = self.face_to_polygon_maps[i][face_indices]
@@ -535,7 +555,8 @@ class MeshDataset(Dataset):
         point_poly_centroids = poly_centroids[point_poly_indices]
 
         ### perimeter vertices, their coordinates, and incidence matrix with polygons
-        perimeter_vertex_coords = self.perimeter_vertex_coordinates[idx]
+        perimeter_vertex_indices = self.perimeter_vertex_indices[idx]
+        perimeter_vertex_coords = self.vertices[idx][perimeter_vertex_indices]
         vertex_poly_incidence = self.vertex_polygon_incidence[idx]
 
         if 0.0 < self.keep_fraction < 1.0:
@@ -550,7 +571,8 @@ class MeshDataset(Dataset):
             point_poly_centroids = point_poly_centroids[subset]
 
             ### Get contiguous polygon indices
-            point_poly_indices, is_valid_poly, is_valid_point = self.get_contiguous_polygon_indices(point_poly_indices)
+            point_poly_indices, is_valid_poly, is_valid_point = \
+                 self.get_contiguous_polygon_indices(point_poly_indices, num_polygons=self.num_polygons[idx])
 
             if not is_valid_point.all():
                 ### Drop points that belong to polygons with insufficient points
@@ -577,7 +599,7 @@ class MeshDataset(Dataset):
             perimeter_vertex_coords = perimeter_vertex_coords @ torch.tensor(matrix, dtype=torch.float32).T
 
         ### Copy over the polygon targets
-        point_poly_targets = torch.cat([point_poly_normals, point_poly_centroids], dim=-1)
+        point_poly_targets = torch.cat([point_poly_centroids, point_poly_normals], dim=-1)
         N_polygons = point_poly_indices.max().item() + 1
         polygon_targets = torch.full((N_polygons, 3+3), float('nan'), dtype=torch.float32)
         polygon_targets[point_poly_indices] = point_poly_targets
@@ -616,14 +638,17 @@ class MeshDataset(Dataset):
         print(f"Parsed {len(obj_files)} .obj files from {len(txt_files)} .txt files.")
         return obj_files
 
-    def normalize_points(self, vertices):
+    def normalize_points(self, vertices, return_params=False):
         centroid = vertices.mean(dim=0, keepdim=True)
         vertices = vertices - centroid
         scale = torch.norm(vertices, dim=-1).max()
         if scale < 1e-6:
             scale = 1.0
         vertices = vertices / scale
-        return vertices
+        if return_params:
+            return vertices, centroid, scale
+        else:
+            return vertices
 
     @staticmethod
     def get_mesh(obj_file, surface_idx=9999):
@@ -697,31 +722,21 @@ class MeshDataset(Dataset):
         return np.array(face_to_polygon_map, dtype=np.int64), num_polygons
 
     @staticmethod
-    def get_contiguous_polygon_indices(poly_indices, min_points_per_polygon=3):
-
-        '''
-        Inputs:
-            poly_indices: tensor of shape [num_points], polygon index for each point
-            min_points_per_polygon: int, minimum number of points required for a polygon to be valid
-        Outputs:
-            new_poly_indices: tensor of shape [num_valid_points], new contiguous polygon indices for valid points
-            is_valid_point: tensor of shape [num_points], boolean mask indicating valid points
-        '''
+    def get_contiguous_polygon_indices(poly_indices, num_polygons, min_points_per_polygon=3):
 
         ### For finite sampled points, small polygons may have low sampled points --> require >=3
-        _unique, inverse_indices, counts = torch.unique(poly_indices, return_inverse=True, return_counts=True)
+        counts = torch.bincount(poly_indices, minlength=num_polygons)
         is_valid_poly = counts >= min_points_per_polygon
 
         ### Mask for sampled points
-        is_valid_point = is_valid_poly[inverse_indices]
+        is_valid_point = is_valid_poly[poly_indices]
 
         ### New contiguous polygon indices (i.e. [F, T, T, F, T] --> [0, 1, 2, 2, 3])
         poly_index_map = torch.cumsum(is_valid_poly, dim=0) - 1
-        new_poly_indices = poly_index_map[inverse_indices[is_valid_point]]
-
-        assert new_poly_indices.max().item() + 1 == is_valid_poly.sum().item()
+        new_poly_indices = poly_index_map[poly_indices[is_valid_point]]
 
         return new_poly_indices, is_valid_poly, is_valid_point
+
 
     @staticmethod
     def get_perimeter_vertices(mesh, face_to_polygon_map, min_corner_angle_deg=15.0):
@@ -816,10 +831,7 @@ class MeshDataset(Dataset):
         perimeter_vertices_global = torch.where(vertex_poly_incidence.any(dim=1))[0]
         vertex_poly_incidence = vertex_poly_incidence[perimeter_vertices_global, :]
 
-        ### Extract coordinates of these perimeter vertices
-        perimeter_coords = torch.tensor(mesh.vertices[perimeter_vertices_global.numpy()], dtype=torch.float32)
-
-        return perimeter_vertices_global, perimeter_coords, vertex_poly_incidence
+        return perimeter_vertices_global, vertex_poly_incidence
 
     @staticmethod
     def get_incidence_matrix(face_indices):
@@ -833,3 +845,57 @@ class MeshDataset(Dataset):
         incidence_matrix[row_indices, col_indices] = True
 
         return incidence_matrix
+    
+
+
+from scipy.spatial import ConvexHull
+
+def sample_random(n, d, unit=False):
+    points = torch.randn(n, d)
+    if unit:
+        points = points / points.norm(dim=1, keepdim=True)
+    c = ConvexHull(points)
+    facets = torch.tensor(c.simplices)
+    a = torch.arange(n)
+    inc = (facets.unsqueeze(2) == a.view(1,1,n)).sum(1)
+    return points, inc, c.simplices
+
+class ConvexHullData(torch.utils.data.Dataset):
+    def __init__(self, n_range, dim, unit_norm, length, get_meshes=False) -> None:
+        super().__init__()
+        self.n_range = n_range
+        self.dim = dim
+        self.unit_norm = unit_norm
+        self.length = length
+        self.get_meshes = get_meshes
+
+        self.max_facets = 0
+        self.points = []
+        self.n_points = []
+        self.incidence = []
+
+        if get_meshes:
+            self.meshes = []
+
+        self.fill_samples()
+
+    def fill_samples(self):
+        for _ in range(self.length):
+            n = self.n_range[torch.randint(0,len(self.n_range), ())]
+            V, I, simplices = sample_random(n, self.dim, self.unit_norm)
+
+            if self.get_meshes:
+                mesh = trimesh.Trimesh(vertices=V.numpy(), faces=simplices)
+                self.meshes.append(mesh)
+
+            if I.size(0) > self.max_facets:
+                self.max_facets = I.size(0)
+            self.points.append(V)
+            self.incidence.append(I)
+            self.n_points.append(V.size(0))
+
+    def __getitem__(self, index):
+        return self.points[index], self.incidence[index]
+
+    def __len__(self):
+        return len(self.points)

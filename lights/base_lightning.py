@@ -30,19 +30,21 @@ class BaseLightning(pl.LightningModule):
         if 'particle_flow' in self.config['dataset']['name']:
             self.config['output_norm'] = 'softmax'
         
+        hungarian = self.config.get('hungarian', True)
+
         if self.config.get('output_norm', None) is None:
             loss_fn = partial(F.binary_cross_entropy_with_logits, 
                               pos_weight=torch.tensor(self.config.get('pos_weight', 1.0)))
-            self.loss = partial(metrics.LAP_loss, loss_fn=loss_fn)
+            self.loss = partial(metrics.LAP_loss, loss_fn=loss_fn, hungarian=hungarian)
             print("Using BCE with logits loss (assumes logits output)")
         elif self.config['output_norm'] == 'sigmoid':
-            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
+            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy, hungarian=hungarian)
             print("Using BCE loss (assumes sigmoid on output)")
         elif self.config['output_norm'] == 'softmax':
-            self.loss = partial(metrics.LAP_loss, loss_fn=metrics.kld_plus_ind_loss)
+            self.loss = partial(metrics.LAP_loss, loss_fn=metrics.kld_plus_ind_loss, hungarian=hungarian)
             print("Using KLD incidence and BCE indicator loss (assumes softmax on output)")
         elif self.config['output_norm'] == 'log_softmax':
-            self.loss = partial(metrics.LAP_loss, loss_fn=partial(metrics.kld_plus_ind_loss, log_inputs=True))
+            self.loss = partial(metrics.LAP_loss, loss_fn=partial(metrics.kld_plus_ind_loss, log_inputs=True), hungarian=hungarian)
             print("Using KLD incidence and BCE indicator loss (assumes log-softmax on output)")
         else:
             raise ValueError(f"Unknown output_norm {self.config['output_norm']}")

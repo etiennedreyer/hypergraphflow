@@ -1,5 +1,5 @@
 model: hhrm
-dataset: objaverse_mesh
+dataset: synthetic_mesh
 
 optimizer: adam_atan2
 scheduler: {
@@ -7,30 +7,31 @@ scheduler: {
   warmup_epochs: 10
 }
 learning_rate: 1.0e-4
-num_epochs: 1000
+num_epochs: 600
 pos_weight: 10.0
 num_workers: &W 4
 nray: 8
 seed: 123456
 accelerator: cuda
-strategy: ddp #ddp_find_unused_parameters
-devices: auto
+strategy: ddp # ddp_find_unused_parameters
+devices: auto 
 precision: bf16-mixed
+# hungarian: false # for overtraining
 
 dl_train:
-  total_size: 16000 #8000 #40000 #20000 #32000 #50000
-  batch_size: 256
+  total_size: 100000 #16000 #8000 #40000 #20000 #32000 #50000
+  batch_size: 256 #128
   shuffle: true
   num_workers: *W
 
 dl_val:
-  total_size: 1600 #3200
-  batch_size: 256
+  total_size: 10000 #1600 #3200
+  batch_size: 256 # 128
   shuffle: false
   num_workers: *W
 
 dl_test:
-  total_size: 1600 # 3200
+  total_size: 10000 # 1600 # 3200
   batch_size: 256
   shuffle: false
   num_workers: *W

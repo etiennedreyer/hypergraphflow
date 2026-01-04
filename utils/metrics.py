@@ -51,7 +51,7 @@ def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'
 
     return total_loss
 
-def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False):
+def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False, hungarian=True):
 
     if loss_fn is None:
         loss_fn = partial(F.binary_cross_entropy_with_logits)
@@ -59,56 +59,61 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None,
     B, K, N = input.shape
     device = input.device
 
-    ### x has shape (B, K, N)
-    get_cost_matrix_parallel = lambda x: loss_fn(
-        x.unsqueeze(1).expand(-1, K, -1, -1), 
-        target.unsqueeze(2).expand(-1, -1, K, -1),
-        reduction='none'
-    ).mean(3)
+    if hungarian:
+        ### x has shape (B, K, N)
+        get_cost_matrix_parallel = lambda x: loss_fn(
+            x.unsqueeze(1).expand(-1, K, -1, -1), 
+            target.unsqueeze(2).expand(-1, -1, K, -1),
+            reduction='none'
+        ).mean(3)
 
-    ### x has shape (B, 1, N)
-    get_cost_matrix_serial = lambda x: loss_fn(
-        x.expand(-1, K, -1),
-        target,
-        reduction='none'
-    ).mean(2)
-    
-    ### Compute lowest-loss permutation (no grad)
-    with torch.no_grad():
-
-        ### allocates (B, K, K, N) tensor
-        if parallel:
-            pdist = get_cost_matrix_parallel(input)
-            if masks is not None:
-                for mask in masks:
-                    pdist += get_cost_matrix_parallel(mask)
+        ### x has shape (B, 1, N)
+        get_cost_matrix_serial = lambda x: loss_fn(
+            x.expand(-1, K, -1),
+            target,
+            reduction='none'
+        ).mean(2)
         
-        ### allocates (B, K, N) tensor
-        else:
-            pdist = torch.zeros((B, K, K), device=device)
+        ### Compute lowest-loss permutation (no grad)
+        with torch.no_grad():
 
-            for k in range(K):
-                input_k = input[:, k:k+1, :]
-                pdist[:, k, :] = get_cost_matrix_serial(input_k)
+            ### allocates (B, K, K, N) tensor
+            if parallel:
+                pdist = get_cost_matrix_parallel(input)
                 if masks is not None:
                     for mask in masks:
-                        mask_k = mask[:, k:k+1, :]
-                        pdist[:, k, :] += get_cost_matrix_serial(mask_k)
+                        pdist += get_cost_matrix_parallel(mask)
+            
+            ### allocates (B, K, N) tensor
+            else:
+                pdist = torch.zeros((B, K, K), device=device)
 
-    ### (B, K, K) cost matrix
-    cost_matrix = pdist.detach().cpu().numpy()
+                for k in range(K):
+                    input_k = input[:, k:k+1, :]
+                    pdist[:, k, :] = get_cost_matrix_serial(input_k)
+                    if masks is not None:
+                        for mask in masks:
+                            mask_k = mask[:, k:k+1, :]
+                            pdist[:, k, :] += get_cost_matrix_serial(mask_k)
 
-    ### Solve LSA with Hungarian algorithm
-    if n > 0:
-        indices = ray_lsa(cost_matrix, n)
+        ### (B, K, K) cost matrix
+        cost_matrix = pdist.detach().cpu().numpy()
+
+        ### Solve LSA with Hungarian algorithm
+        if n > 0:
+            indices = ray_lsa(cost_matrix, n)
+        else:
+            indices = np.array([linear_sum_assignment(p) for p in cost_matrix])
+
+        ### Rearrange target rows for minimal loss
+        target_perm_idx = torch.from_numpy(indices[:,1]).to(device).long() # (B, K)
+        target_perm_idx_expanded = target_perm_idx.unsqueeze(2).expand(-1, -1, N) # (B, K, N)
+        target_aligned = torch.gather(
+            target, 1, target_perm_idx_expanded)
     else:
-        indices = np.array([linear_sum_assignment(p) for p in cost_matrix])
-
-    ### Rearrange target rows for minimal loss
-    target_perm_idx = torch.from_numpy(indices[:,1]).to(device).long() # (B, K)
-    target_perm_idx_expanded = target_perm_idx.unsqueeze(2).expand(-1, -1, N) # (B, K, N)
-    target_aligned = torch.gather(
-        target, 1, target_perm_idx_expanded)
+        target_aligned = target
+        range_K = np.arange(K)
+        indices = np.array([(range_K, range_K) for _ in range(B)])
     
     ### Compute loss with aligned target
     total_loss = loss_fn(input, target_aligned, reduction='none')
