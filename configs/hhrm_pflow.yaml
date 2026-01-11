@@ -1,0 +1,49 @@
+name: hhrm
+
+### dimensions
+num_node_features: &F 3
+num_edges: &K 42
+hidden_dim: &H 72
+
+### attention
+timestep_embedding: true
+time_dim: &T 8
+freq_dim: 64
+
+node_embedder:
+    input_dim: *F # this gets overwritten in hhrm.py
+    layers: [*H]
+    output_dim: *H
+    activation: relu
+
+node_CA_L:
+    model_dim: *H
+    c_dim: *T
+    num_heads: 4
+    num_layers: 4
+    gated: false
+    scaling: true
+    activation: silu
+    ffn_factor: 2
+
+edge_CA_H:
+    model_dim: *H
+    c_dim: *T
+    num_heads: 4
+    num_layers: 4
+    gated: false
+    scaling: true
+    activation: silu
+    ffn_factor: 2
+
+indicator_predictor:
+    input_dim: *H
+    layers: [*H, 64, 32]
+    output_dim: 1
+    activation: relu
+
+hrm:
+    iters_L: 1
+    iters_H: 1
+    segments: 8
+    use_draft: false
