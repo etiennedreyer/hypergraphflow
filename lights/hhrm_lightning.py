@@ -109,3 +109,15 @@ class HHRMLightning(BaseLightning):
         self.log_dict({f"{k}/val":v for k,v in logs.items()})
 
         return loss
+
+
+from models.hhrm import HTRM
+class HTRMLightning(HHRMLightning):
+
+    def __init__(self, model_config, train_config):
+        super().__init__(model_config, train_config)
+
+        self.net = HTRM(self.config)
+
+        ### Need to implement deep supervision manually
+        self.automatic_optimization = False

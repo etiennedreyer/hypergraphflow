@@ -246,3 +246,107 @@ class HHRM(nn.Module):
         state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
 
         return im, state
+
+
+class HTRM(HHRM):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        ### Rename stuff
+        self.name = 'HTRM'
+        self.iters_latent = self.iters_L
+        self.iters_deep = self.iters_H
+
+        if self.config.get('share_weights', False):
+            self.norm_H = self.norm_L
+            self.CA_H = self.CA_L
+            if self.timestep_embedding:
+                self.context_projector_H = self.context_projector_L
+
+    def get_time_emb(self, segment: int, iter_latent: int, iter_deep: int):
+        if self.timestep_embedding:
+            t_step = iter_latent + iter_deep * self.iters_latent + segment * self.iters_latent * self.iters_deep
+            t_frac = t_step / (self.iters_latent * self.iters_deep * self.segments)
+            t_frac = torch.tensor([t_frac], dtype=torch.float32, device=self.z_L_init.device)
+            t_emb = self.timestep_embedder(t_frac)
+            # print(f"segment: {segment}, iter_latent: {iter_latent}, iter_deep: {iter_deep}, t_step: {t_step}, t_frac: {t_frac.item():.4f}")
+            return t_emb
+        else:
+            return None
+
+    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, draft=None):
+
+        z_L = hid_state.z_L
+        z_H = hid_state.z_H
+
+        ### Node mask
+        node_mask = torch.isnan(input_state).any(dim=-1)
+        if node_mask.any():
+            input_state = torch.nan_to_num(input_state, nan=0.0)
+        else:
+            node_mask = None
+
+        ### Edge mask
+        if self.use_draft and (draft is not None):
+            ind_draft = draft[:, :, -1:] # (B, K, 1)
+            edge_mask = (ind_draft < 0.2).squeeze(-1)
+        else:
+            edge_mask = None
+
+        ### Input embedding
+        if input_state.shape[-1] == self.num_node_features:
+            input_state = self.node_embedder(input_state)
+
+        ### Hyperedge positional embedding
+        edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
+        edge_pos_emb = self.edge_embedder(edge_pos_idx)
+
+        def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment):
+
+            z_H = self.norm_H(z_H + edge_pos_emb)
+
+            for iter_latent in range(self.iters_latent):
+                z_L = self.norm_L(z_L + input_state)
+                t_emb = self.get_time_emb(segment, iter_latent, iter_deep)
+                for block in self.CA_L:
+                    z_L = block(z_L, z_H,
+                                c=t_emb,
+                                key_padding_mask_SA=node_mask,
+                                key_padding_mask_CA=edge_mask
+                                )
+
+            t_emb = self.get_time_emb(segment, self.iters_latent - 1, iter_deep)
+            for block in self.CA_H:
+                z_H = block(z_H, z_L,
+                            c=t_emb,
+                            key_padding_mask_SA=edge_mask,
+                            key_padding_mask_CA=node_mask
+                            )
+            return z_L, z_H
+        
+        def deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment):
+            ### Recursing z_H-1 times to improve z_L and z_H (no gradient)
+            with torch.no_grad():
+                for iter_deep in range(self.iters_deep - 1):
+                    z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment)
+            
+            ### Last iteration with gradient
+            z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, self.iters_deep - 1, segment)
+
+            return z_L, z_H
+
+        z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment)
+
+        ### prediction
+        inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
+        ind = self.indicator_predictor(z_H) # (B, K, 1)
+        im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
+
+        ### normalization
+        im = self.normalize_output(im)
+
+        ### new state
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
+
+        return im, state
