@@ -44,16 +44,32 @@ class HHRMLightning(BaseLightning):
     def training_step(self, batch, batch_idx):
 
         node_feats, im_truth = batch
+        B, K, N = im_truth.shape
 
         hid_state = self.net.get_init_state()
 
+        target_indices = None
+        do_hungarian = True
         ### Deep Supervision
         for s in range(self.net.segments):
 
             self.optimizers().zero_grad()
 
             pred, hid_state = self.net(hid_state, node_feats, segment=s)
-            loss = self.loss(pred, im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
+
+            # ### Rearrange ground truth based on 0th segment prediction; switch off hungarian for later segments
+            # if s == 1:
+            #     target_perm_idx = torch.from_numpy(target_indices[:,1]).to(im_truth.device).long() 
+            #     target_perm_idx_expanded = target_perm_idx.unsqueeze(2).expand(-1, -1, N)
+            #     im_truth = torch.gather(im_truth, 1, target_perm_idx_expanded)
+            #     do_hungarian = False
+
+            loss, target_indices = self.loss(pred, im_truth, 
+                                      n=min(self.config['nray'], B), 
+                                      return_indices=True,
+                                      parallel=False,
+                                      hungarian=do_hungarian)
+            loss = loss.mean()
 
             self.manual_backward(loss)
             self.clip_gradients(self.optimizers(), gradient_clip_val=1.0, gradient_clip_algorithm="norm") ### TODO check if this is still helpful
