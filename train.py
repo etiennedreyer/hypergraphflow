@@ -104,6 +104,13 @@ def get_model(config):
             model_config=config['model'],
             train_config=config,
         )
+    elif 'htrm' in config['model']['name']:
+        from lights.hhrm_lightning import HTRMLightning
+
+        model = HTRMLightning(
+            model_config=config['model'],
+            train_config=config,
+        )
     else:
         raise ValueError("Unknown model type:", config['model']['name'])
     
