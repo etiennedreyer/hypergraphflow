@@ -28,6 +28,8 @@ class SetGameData(torch.utils.data.IterableDataset):
     def get_incidence_matrix(self, y):
         # Return an incidence matrix of shape (num_sets, hand_size)
         incidence_matrix = np.zeros((len(y), self.hand_size), dtype=bool)
+        if len(y) == 0:
+            return incidence_matrix
         edge_indices = np.arange(len(y)).repeat(self.set_size)
         node_indices = y.flatten()
         incidence_matrix[edge_indices, node_indices] = True
@@ -55,6 +57,9 @@ def get_collate_fn(max_facets):
         incidence = []
         for p, i in batch:
             nf = i.size(0)
+            if nf > max_facets:
+                print(f"Warning: number of hyperedges {nf} exceeds maximum {max_facets}, truncating")
+                i = i[:max_facets]
             inc = torch.cat([i, torch.zeros(max_facets - nf, i.size(1))],dim=0)
             inc = torch.cat([inc, torch.zeros(max_facets, 1)], dim=1)
             inc[:nf,-1] = 1.

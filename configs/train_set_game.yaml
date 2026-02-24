@@ -3,7 +3,9 @@ dataset: set_game
 
 optimizer: adam
 learning_rate: 1.0e-4
-num_epochs: 200
+num_epochs: 20
+limit_train_batches: 100
+limit_val_batches: 20
 num_workers: &W 1
 nray: 8
 seed: 123456
