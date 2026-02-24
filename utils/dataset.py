@@ -59,6 +59,12 @@ class HyperGraphDataset:
                 dim=config['D'],
                 length=total_size
             )
+        ### SET Game
+        elif 'set_game' in self.name:
+            from utils.set_game_data import SetGameData
+            self.dataset = SetGameData()
+            self.dataset.n_points = [config['N']]
+            self.dataset.max_facets = config['K']
         else:
             raise NotImplementedError(f"Dataset {self.name} unimplemented.")
 
@@ -66,7 +72,7 @@ class HyperGraphDataset:
         self.max_edges = self.dataset.max_facets
 
         self.in_feats = config['D']
-        if 'particle_flow' not in self.name:
+        if 'convex_hull' in self.name:
             self.name += f"_{config['D']}D"
             self.name += f"_{config['N'][0]}to{config['N'][1]-1}"
 
@@ -136,6 +142,11 @@ class HyperGraphDataset:
                 return node_feats, im
 
             self.collate_fn = custom_collate_fn
+        
+        elif 'set_game' in self.name:
+            self.pad = False
+            from utils.set_game_data import get_collate_fn
+            self.collate_fn = get_collate_fn(self.max_edges)
 
         if self.pad:
             base_collate_fn = self.collate_fn
@@ -155,7 +166,7 @@ class HyperGraphDataset:
         ### 1) Get subset of dataset if indices are provided
         dataset = self.dataset
         n_points = self.dataset.n_points
-        if indices is not None:
+        if indices is not None and len(indices) > 0:
             dataset = Subset(self.dataset, indices)
             n_points = [self.dataset.n_points[i] for i in indices]
 

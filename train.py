@@ -76,7 +76,7 @@ def get_model(config):
     if num_ray > 0:
 
         ### Set log dir with appropriate permissions to avoid ray's default 777
-        log_dir = f"/storage/agrp/dreyet/ray_logs/{os.environ.get('PBS_JOBID', 'local')}"
+        log_dir = f"/tmp/ray_logs/{os.environ.get('PBS_JOBID', 'local')}"
         os.makedirs(log_dir, mode=0o755, exist_ok=True)
         ray.init(num_cpus=num_ray, 
                  _temp_dir=log_dir,
