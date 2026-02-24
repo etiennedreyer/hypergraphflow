@@ -228,7 +228,7 @@ class SelfAttentionLayer(AttentionLayer):
 
         self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim, bias=False)
         nn.init.xavier_uniform_(self.qkv_proj.weight)
-        nn.init.constant_(self.qkv_proj.bias, 0)
+        # nn.init.constant_(self.qkv_proj.bias, 0)
 
     def get_qkv(self, x, y=None):
         q, k ,v = self.qkv_proj(x).chunk(3, dim=-1)
@@ -243,9 +243,9 @@ class CrossAttentionLayer(AttentionLayer):
         self.q_proj  = nn.Linear(self.model_dim,   self.model_dim, bias=False)
         self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim, bias=False)
         nn.init.xavier_uniform_(self.q_proj.weight)
-        nn.init.constant_(self.q_proj.bias, 0)
+        # nn.init.constant_(self.q_proj.bias, 0)
         nn.init.xavier_uniform_(self.kv_proj.weight)
-        nn.init.constant_(self.kv_proj.bias, 0)
+        # nn.init.constant_(self.kv_proj.bias, 0)
 
     def get_qkv(self, x, y):
         q = self.q_proj(x)
@@ -306,3 +306,48 @@ class DualUpdateBlock(nn.Module):
                         attn_mask=attn_mask_b)
 
         return x_a, x_b
+    
+from .tropical_attention import TropicalAttention
+class TropicalDecoderBlock(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.SA = TropicalAttention(*args, **kwargs)
+        self.CA = TropicalAttention(*args, **kwargs)
+        self.num_heads = self.CA.num_heads
+
+    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None):
+        """
+        Forward pass for DecoderBlock.
+
+        Args:
+            x_a: input tensor (batch_size, seq_len, model_dim)
+            x_b: cross input tensor
+            c: context tensor
+            key_padding_mask_SA: key padding mask for self-attention
+            key_padding_mask_CA: key padding mask for cross-attention
+        """
+        ### Self attention
+        x_a = self.SA(x_a, kv=None, key_padding_mask=key_padding_mask_SA)
+
+        ### Cross attention
+        x_a = self.CA(x_a, kv=x_b, key_padding_mask=key_padding_mask_CA)
+
+        return x_a
+    
+
+### Do traditional Decoder and Tropical Decoder in parallel and combine their outputs with a learnable coefficient alpha
+class MixedDecoderBlock(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.decoder_block = DecoderBlock(*args, **kwargs)
+        self.tropical_decoder_block = TropicalDecoderBlock(*args, **kwargs)
+        self.alpha_logit = nn.Parameter(torch.tensor(1.0))
+
+    def forward(self, x_a, x_b, c=None, key_padding_mask_SA=None, key_padding_mask_CA=None):
+        out_traditional = self.decoder_block(x_a, x_b, c=c, key_padding_mask_SA=key_padding_mask_SA, key_padding_mask_CA=key_padding_mask_CA)
+        out_tropical = self.tropical_decoder_block(x_a, x_b, c=c, key_padding_mask_SA=key_padding_mask_SA, key_padding_mask_CA=key_padding_mask_CA)
+        alpha_coef = torch.sigmoid(self.alpha_logit)
+        out = alpha_coef * out_traditional + (1 - alpha_coef) * out_tropical
+        return out

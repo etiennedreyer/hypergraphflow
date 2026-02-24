@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import yaml
-from models.attention import DecoderBlock, ContextProjector
+from models.attention import DecoderBlock, TropicalDecoderBlock, MixedDecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
 from dataclasses import dataclass
@@ -33,6 +33,12 @@ class HHRM(nn.Module):
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
         self.output_norm = self.config.get('output_norm', None)
+
+        ### Tropical attention flag
+        self.tropical = self.config.get('tropical', False)
+        self.mixed = self.config.get('mixed', False)
+        # attention_module = lambda last: TropicalDecoderBlock if self.tropical and last else DecoderBlock
+        attention_module = lambda last: MixedDecoderBlock if self.mixed and self.tropical else TropicalDecoderBlock if self.tropical and last else DecoderBlock
 
         ### Hierarchical reasoning parameters
         hrm_cfg = self.config['hrm']
@@ -81,7 +87,7 @@ class HHRM(nn.Module):
                                     )
 
         self.CA_L = nn.ModuleList([
-                            DecoderBlock(
+                            attention_module(i == CA_L_cfg['num_layers'] - 1)(
                                 model_dim=CA_L_cfg['model_dim'],
                                 num_heads=CA_L_cfg['num_heads'],
                                 activation=CA_L_cfg['activation'],
@@ -91,7 +97,7 @@ class HHRM(nn.Module):
                                 ffn_factor=CA_L_cfg['ffn_factor'],
                                 c_proj=self.context_projector_L if self.timestep_embedding else None,
                             )
-                            for _ in range(CA_L_cfg['num_layers'])
+                            for i in range(CA_L_cfg['num_layers'])
                         ])
         
         ### Hyperedges (high-level) updated based on nodes (low-level)
@@ -104,7 +110,7 @@ class HHRM(nn.Module):
                                         activation=CA_H_cfg['activation']
                                     )
         self.CA_H = nn.ModuleList([
-                            DecoderBlock(
+                            attention_module(i == CA_H_cfg['num_layers'] - 1)(
                                 model_dim=CA_H_cfg['model_dim'],
                                 num_heads=CA_H_cfg['num_heads'],
                                 activation=CA_H_cfg['activation'],
@@ -114,7 +120,7 @@ class HHRM(nn.Module):
                                 ffn_factor=CA_H_cfg['ffn_factor'],
                                 c_proj=self.context_projector_H if self.timestep_embedding else None,
                             )
-                            for _ in range(CA_H_cfg['num_layers'])
+                            for i in range(CA_H_cfg['num_layers'])
                         ])
 
         ### Indicator predictor
