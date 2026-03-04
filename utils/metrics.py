@@ -51,7 +51,7 @@ def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'
 
     return total_loss
 
-def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False, hungarian=True):
+def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False, hungarian=True, node_mask=None):
 
     if loss_fn is None:
         loss_fn = partial(F.binary_cross_entropy_with_logits)
@@ -118,8 +118,14 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None,
     ### Compute loss with aligned target
     total_loss = loss_fn(input, target_aligned, reduction='none')
     
-    ### Average over matrix dimensions
-    total_loss = total_loss.mean(dim=(1, 2))
+    ### Average over matrix dimensions, considering only valid entries
+    if node_mask is not None:
+        ### Note: assumes that True entries correspond to _padded_ nodes
+        num_valid_nodes = (~node_mask).sum(dim=1)
+        num_total_entries = num_valid_nodes * K + K  # valid_nodes * edges + indicators
+        total_loss = total_loss.sum(dim=(1, 2)) / (num_total_entries.float() + 1e-8)
+    else:
+        total_loss = total_loss.mean(dim=(1, 2))
 
     if return_indices:
         return total_loss, indices

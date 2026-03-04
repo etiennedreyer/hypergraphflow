@@ -46,6 +46,9 @@ class HHRMLightning(BaseLightning):
         node_feats, im_truth = batch
         B, K, N = im_truth.shape
 
+        # Detect node padding mask (True = padded)
+        node_mask = torch.isnan(node_feats).any(dim=-1)
+
         hid_state = self.net.get_init_state()
 
         target_indices = None
@@ -68,7 +71,8 @@ class HHRMLightning(BaseLightning):
                                       n=min(self.config['nray'], B), 
                                       return_indices=True,
                                       parallel=False,
-                                      hungarian=do_hungarian)
+                                      hungarian=do_hungarian,
+                                      node_mask=node_mask)
             loss = loss.mean()
 
             self.manual_backward(loss)
@@ -94,8 +98,13 @@ class HHRMLightning(BaseLightning):
 
         node_feats, im_truth = batch
 
+        # Detect node padding mask (True = padded)
+        node_mask = torch.isnan(node_feats).any(dim=-1)
+
         preds = self(node_feats, return_segments=True)
-        loss = self.loss(preds[-1], im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
+        loss = self.loss(preds[-1], im_truth, 
+                        n=min(self.config['nray'], node_feats.size(0)),
+                        node_mask=node_mask).mean()
 
         ### Convert to probs
         if self.net.output_norm is None:

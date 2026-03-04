@@ -12,9 +12,11 @@ import math
 class HiddenState:
     z_L: torch.Tensor
     z_H: torch.Tensor
+    A: torch.Tensor = None
 
     def detach(self):
-        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach())
+        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach(), 
+                           A=self.A.detach() if self.A is not None else None)
 
 class HHRM(nn.Module):
 
@@ -40,6 +42,7 @@ class HHRM(nn.Module):
         self.iters_H = hrm_cfg['iters_H']
         self.segments = hrm_cfg['segments']
         self.use_draft = hrm_cfg.get('use_draft', False)
+        self.persistent_A = hrm_cfg.get('persistent_A', False)
 
         ### Initial, static hidden states
         self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
@@ -127,7 +130,8 @@ class HHRM(nn.Module):
         )
 
     def get_init_state(self):
-        return HiddenState(z_L=self.z_L_init, z_H=self.z_H_init)
+        return HiddenState(z_L=self.z_L_init, 
+                           z_H=self.z_H_init)
 
     def get_time_emb(self, segment: int, iter_L: int, iter_H: int):
         if self.timestep_embedding:
@@ -140,8 +144,11 @@ class HHRM(nn.Module):
         else:
             return None
 
-    def dot_prod_incidence(self, q, k):
-        return (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+    def dot_prod_incidence(self, q, k, key_padding_mask=None):
+        out = (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+        if key_padding_mask is not None:
+            out = out.masked_fill(key_padding_mask.unsqueeze(1) == False, float('-inf'))
+        return out
 
     def normalize_output(self, im):
         if self.output_norm == 'sigmoid':
@@ -155,10 +162,16 @@ class HHRM(nn.Module):
             raise ValueError(f"Unknown output_norm {self.output_norm}")
         return im
 
-    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int,draft=None):
+    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, draft=None):
 
         z_L = hid_state.z_L
         z_H = hid_state.z_H
+        A   = hid_state.A
+
+        if A is None and self.persistent_A:
+            ### Initialize A if not passed
+            shape = (input_state.shape[0], self.num_edges, input_state.shape[1])
+            A = torch.zeros(shape, device=input_state.device)
 
         ### Node mask
         node_mask = torch.isnan(input_state).any(dim=-1)
@@ -199,7 +212,8 @@ class HHRM(nn.Module):
                             z_L = block(z_L, z_H,
                                         c=t_emb,
                                         key_padding_mask_SA=node_mask,
-                                        key_padding_mask_CA=edge_mask
+                                        key_padding_mask_CA=edge_mask,
+                                        attn_mask_CA=A.permute(0, 2, 1) if A is not None else None
                                         )
 
                 if not last_iter_H:
@@ -210,10 +224,14 @@ class HHRM(nn.Module):
                         z_H = block(z_H, z_L,
                                     c=t_emb,
                                     key_padding_mask_SA=edge_mask,
-                                    key_padding_mask_CA=node_mask
+                                    key_padding_mask_CA=node_mask,
+                                    attn_mask_CA=A
                                     )
+                    # ### Persistent matrix update
+                    # if self.persistent_A:
+                    #     A = self.dot_prod_incidence(q=z_H, k=z_L).detach() # (B, K, N)
 
-        assert not z_H.requires_grad and not z_L.requires_grad
+        assert not z_H.requires_grad and not z_L.requires_grad and (A is None or not A.requires_grad)
 
         ### 1-step gradient approximation
         z_L = self.norm_L(z_L + input_state)
@@ -222,7 +240,8 @@ class HHRM(nn.Module):
             z_L = block(z_L, z_H,
                          c=t_emb,
                          key_padding_mask_SA=node_mask,
-                         key_padding_mask_CA=edge_mask
+                         key_padding_mask_CA=edge_mask,
+                         attn_mask_CA=A.permute(0, 2, 1) if A is not None else None
                         )
 
         z_H = self.norm_H(z_H + edge_pos_emb)
@@ -231,11 +250,14 @@ class HHRM(nn.Module):
             z_H = block(z_H, z_L,
                          c=t_emb,
                          key_padding_mask_SA=edge_mask,
-                         key_padding_mask_CA=node_mask
+                         key_padding_mask_CA=node_mask,
+                         attn_mask_CA=A
                         )
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
+        if node_mask is not None:
+            inc = inc * (~node_mask).unsqueeze(1)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
@@ -243,7 +265,8 @@ class HHRM(nn.Module):
         im = self.normalize_output(im)
 
         ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), 
+                            A=inc.detach() if self.persistent_A else None)
 
         return im, state
 

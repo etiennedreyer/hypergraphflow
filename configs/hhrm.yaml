@@ -47,3 +47,4 @@ hrm:
     iters_H: 2
     segments: 8
     use_draft: false
+    persistent_A: false
