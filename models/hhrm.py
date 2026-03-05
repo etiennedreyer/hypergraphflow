@@ -42,7 +42,12 @@ class HHRM(nn.Module):
         self.iters_H = hrm_cfg['iters_H']
         self.segments = hrm_cfg['segments']
         self.use_draft = hrm_cfg.get('use_draft', False)
-        self.persistent_A = hrm_cfg.get('persistent_A', False)
+        if 'persistent_A' in hrm_cfg:
+            print("Using persistent A with config:", hrm_cfg['persistent_A'])
+            self.persistent_A = True
+            self.masked_attention_threshold = hrm_cfg['persistent_A'].get('masked_attention_threshold', None)
+        else:
+            self.persistent_A = False
 
         ### Initial, static hidden states
         self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
@@ -147,7 +152,8 @@ class HHRM(nn.Module):
     def dot_prod_incidence(self, q, k, key_padding_mask=None):
         out = (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
         if key_padding_mask is not None:
-            out = out.masked_fill(key_padding_mask.unsqueeze(1) == False, float('-inf'))
+            out = out.masked_fill(key_padding_mask.unsqueeze(1), -50.0)
+            ### Note: using 50.0 b/c -inf gives NaNs in binary_cross_entropy_with_logits
         return out
 
     def normalize_output(self, im):
@@ -229,7 +235,7 @@ class HHRM(nn.Module):
                                     )
                     # ### Persistent matrix update
                     # if self.persistent_A:
-                    #     A = self.dot_prod_incidence(q=z_H, k=z_L).detach() # (B, K, N)
+                    #     A = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask).detach() # (B, K, N)
 
         assert not z_H.requires_grad and not z_L.requires_grad and (A is None or not A.requires_grad)
 
@@ -255,19 +261,25 @@ class HHRM(nn.Module):
                         )
 
         ### prediction
-        inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
-        if node_mask is not None:
-            inc = inc * (~node_mask).unsqueeze(1)
+        inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
         ### normalization
         im = self.normalize_output(im)
 
-        ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), 
-                            A=inc.detach() if self.persistent_A else None)
+        ### persistent A update
+        if self.persistent_A:
+            A = inc.detach()
+            if self.masked_attention_threshold is not None:
+                ### convert to boolean mask
+                ### TODO: implement softmax version too
+                A = A.sigmoid() < self.masked_attention_threshold
+        else:
+            A = None
 
+        ### new state
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), A=A)
         return im, state
 
 
@@ -286,6 +298,9 @@ class HTRM(HHRM):
             self.CA_H = self.CA_L
             if self.timestep_embedding:
                 self.context_projector_H = self.context_projector_L
+
+        if self.config.get('persistent_A', False):
+            raise NotImplementedError("Persistent A not implemented for HTRM")
 
     def get_time_emb(self, segment: int, iter_latent: int, iter_deep: int):
         if self.timestep_embedding:
@@ -362,7 +377,7 @@ class HTRM(HHRM):
         z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment)
 
         ### prediction
-        inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
+        inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 

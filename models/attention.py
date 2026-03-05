@@ -226,7 +226,7 @@ class SelfAttentionLayer(AttentionLayer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim, bias=False)
+        self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim)
         nn.init.xavier_uniform_(self.qkv_proj.weight)
         nn.init.constant_(self.qkv_proj.bias, 0)
 
@@ -240,11 +240,11 @@ class CrossAttentionLayer(AttentionLayer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.q_proj  = nn.Linear(self.model_dim,   self.model_dim, bias=False)
-        self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim, bias=False)
+        self.q_proj  = nn.Linear(self.model_dim,   self.model_dim)
+        self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim)
         nn.init.xavier_uniform_(self.q_proj.weight)
-        nn.init.constant_(self.q_proj.bias, 0)
         nn.init.xavier_uniform_(self.kv_proj.weight)
+        nn.init.constant_(self.q_proj.bias, 0)
         nn.init.constant_(self.kv_proj.bias, 0)
 
     def get_qkv(self, x, y):
