@@ -134,6 +134,9 @@ class HHRM(nn.Module):
                     activation=ind_pred_cfg['activation']
         )
 
+        ### Learnable logit offset
+        self.logit_offset = nn.Parameter(torch.ones(1)*self.config.get('logit_offset', 0.0))
+
     def get_init_state(self):
         return HiddenState(z_L=self.z_L_init, 
                            z_H=self.z_H_init)
@@ -262,6 +265,7 @@ class HHRM(nn.Module):
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
+        inc = inc + self.logit_offset
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
@@ -384,6 +388,7 @@ class HTRM(HHRM):
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
+        inc = inc + self.logit_offset
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
