@@ -299,8 +299,6 @@ class HTRM(HHRM):
             if self.timestep_embedding:
                 self.context_projector_H = self.context_projector_L
 
-        if self.config.get('persistent_A', False):
-            raise NotImplementedError("Persistent A not implemented for HTRM")
 
     def get_time_emb(self, segment: int, iter_latent: int, iter_deep: int):
         if self.timestep_embedding:
@@ -317,6 +315,12 @@ class HTRM(HHRM):
 
         z_L = hid_state.z_L
         z_H = hid_state.z_H
+        A   = hid_state.A
+
+        if A is None and self.persistent_A:
+            ### Initialize A if not passed
+            shape = (input_state.shape[0], self.num_edges, input_state.shape[1])
+            A = torch.zeros(shape, device=input_state.device)
 
         ### Node mask
         node_mask = torch.isnan(input_state).any(dim=-1)
@@ -340,7 +344,7 @@ class HTRM(HHRM):
         edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
         edge_pos_emb = self.edge_embedder(edge_pos_idx)
 
-        def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment):
+        def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment, A=None):
 
             z_H = self.norm_H(z_H + edge_pos_emb)
 
@@ -351,7 +355,8 @@ class HTRM(HHRM):
                     z_L = block(z_L, z_H,
                                 c=t_emb,
                                 key_padding_mask_SA=node_mask,
-                                key_padding_mask_CA=edge_mask
+                                key_padding_mask_CA=edge_mask,
+                                attn_mask_CA=A.permute(0, 2, 1) if A is not None else None
                                 )
 
             t_emb = self.get_time_emb(segment, self.iters_latent - 1, iter_deep)
@@ -359,22 +364,23 @@ class HTRM(HHRM):
                 z_H = block(z_H, z_L,
                             c=t_emb,
                             key_padding_mask_SA=edge_mask,
-                            key_padding_mask_CA=node_mask
+                            key_padding_mask_CA=node_mask,
+                            attn_mask_CA=A
                             )
             return z_L, z_H
         
-        def deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment):
+        def deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment, A=None, iter_deep=0):
             ### Recursing z_H-1 times to improve z_L and z_H (no gradient)
             with torch.no_grad():
                 for iter_deep in range(self.iters_deep - 1):
-                    z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment)
+                    z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment, A=A)
             
             ### Last iteration with gradient
-            z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, self.iters_deep - 1, segment)
+            z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, self.iters_deep - 1, segment, A=A)
 
             return z_L, z_H
 
-        z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment)
+        z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment, A=A)
 
         ### prediction
         inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
@@ -384,7 +390,17 @@ class HTRM(HHRM):
         ### normalization
         im = self.normalize_output(im)
 
+        ### persistent A update
+        if self.persistent_A:
+            A = inc.detach()
+            if self.masked_attention_threshold is not None:
+                ### convert to boolean mask
+                ### TODO: implement softmax version too
+                A = A.sigmoid() < self.masked_attention_threshold
+        else:
+            A = None
+
         ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), A=A)
 
         return im, state
