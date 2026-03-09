@@ -12,10 +12,12 @@ import math
 class HiddenState:
     z_L: torch.Tensor
     z_H: torch.Tensor
+    z_H_var: torch.Tensor = None
     A: torch.Tensor = None
 
     def detach(self):
-        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach(), 
+        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach(),
+                           z_H_var=self.z_H_var.detach() if self.z_H_var is not None else None,
                            A=self.A.detach() if self.A is not None else None)
 
 class HHRM(nn.Module):
@@ -63,7 +65,10 @@ class HHRM(nn.Module):
         )
 
         ### Edge positional embedding
-        self.edge_embedder = nn.Embedding(self.num_edges, self.hidden_dim)
+        # self.edge_embedder = nn.Embedding(self.num_edges, self.hidden_dim)
+        self.edge_mu = nn.Parameter(torch.randn(1, 1, self.hidden_dim))
+        self.edge_logsigma = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+        nn.init.xavier_uniform_(self.edge_logsigma)
         
         ### Injection layer norm
         self.norm_L = nn.LayerNorm(self.hidden_dim, elementwise_affine=False)
@@ -141,6 +146,12 @@ class HHRM(nn.Module):
         return HiddenState(z_L=self.z_L_init, 
                            z_H=self.z_H_init)
 
+    def get_edge_embedding(self, batch_size, device):
+        mu = self.edge_mu.expand(batch_size, self.num_edges, -1)
+        sigma = self.edge_logsigma.exp().expand(batch_size, self.num_edges, -1)
+        z_H_var = mu + sigma * torch.randn(mu.shape, device=device)
+        return z_H_var
+
     def get_time_emb(self, segment: int, iter_L: int, iter_H: int):
         if self.timestep_embedding:
             t_step = iter_L + iter_H * self.iters_L + segment * self.iters_L * self.iters_H
@@ -201,8 +212,12 @@ class HHRM(nn.Module):
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
-        edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
-        edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        # edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
+        # edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        if hid_state.z_H_var is None:
+            edge_pos_emb = self.get_edge_embedding(input_state.shape[0], input_state.device)
+        else:
+            edge_pos_emb = hid_state.z_H_var
 
         ### Forward up to last iteration
         with torch.no_grad():
@@ -283,7 +298,7 @@ class HHRM(nn.Module):
             A = None
 
         ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), A=A)
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), z_H_var=edge_pos_emb.detach(), A=A)
         return im, state
 
 
@@ -345,8 +360,12 @@ class HTRM(HHRM):
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
-        edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
-        edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        # edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
+        # edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        if hid_state.z_H_var is None:
+            edge_pos_emb = self.get_edge_embedding(input_state.shape[0], input_state.device)
+        else:
+            edge_pos_emb = hid_state.z_H_var
 
         def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment, A=None):
 
