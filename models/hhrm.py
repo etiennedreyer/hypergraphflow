@@ -52,8 +52,10 @@ class HHRM(nn.Module):
             self.persistent_A = False
 
         ### Initial, static hidden states
-        self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
-        self.register_buffer("z_H_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        # self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        # self.register_buffer("z_H_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        self.register_buffer("z_L_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
+        self.register_buffer("z_H_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
 
         ### Node feature embedding
         emb_cfg = self.config['node_embedder']
