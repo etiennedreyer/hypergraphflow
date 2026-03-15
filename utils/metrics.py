@@ -51,28 +51,43 @@ def kld_plus_ind_loss(input, target, ind_loss_wt=1.0, eps=1e-8, reduction='none'
 
     return total_loss
 
-def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, parallel=False, hungarian=True, node_mask=None):
+def dice_loss_per_hyperedge(input, target, eps=1e-8):
+    ### Reduces over last dim only: (..., N) -> (...)
+    ### Note: Assumes logits input
+    input = input.sigmoid()
+    intersection = (input * target).sum(dim=-1)
+    union = input.sum(dim=-1) + target.sum(dim=-1)
+    return 1 - 2 * intersection / (union + eps)
+
+def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None, dice_loss_coef=0, parallel=False, hungarian=True, node_mask=None):
 
     if loss_fn is None:
-        loss_fn = partial(F.binary_cross_entropy_with_logits)
+        loss_fn = F.binary_cross_entropy_with_logits
 
     B, K, N = input.shape
     device = input.device
 
     if hungarian:
         ### x has shape (B, K, N)
-        get_cost_matrix_parallel = lambda x: loss_fn(
-            x.unsqueeze(1).expand(-1, K, -1, -1), 
-            target.unsqueeze(2).expand(-1, -1, K, -1),
-            reduction='none'
-        ).mean(3)
+        ### cost matrix has shape (B, K, K)
+        def get_cost_matrix_parallel(x): 
+            x_exp = x.unsqueeze(1).expand(-1, K, -1, -1)                # (B, K, K, N)
+            target_exp = target.unsqueeze(2).expand(-1, -1, K, -1)      # (B, K, K, N)
+            loss = loss_fn(x_exp, target_exp, reduction='none').mean(3) # (B, K, K)
+            if dice_loss_coef > 0:
+                dl = dice_loss_per_hyperedge(x_exp, target_exp) # (B, K, K)
+                loss = (1 - dice_loss_coef) * loss + dice_loss_coef * dl
+            return loss
 
         ### x has shape (B, 1, N)
-        get_cost_matrix_serial = lambda x: loss_fn(
-            x.expand(-1, K, -1),
-            target,
-            reduction='none'
-        ).mean(2)
+        ### cost matrix has shape (B, K)
+        def get_cost_matrix_serial(x):
+            x_exp = x.expand(-1, K, -1) # (B, K, N)
+            loss = loss_fn(x_exp, target, reduction='none').mean(2) # (B, K)
+            if dice_loss_coef > 0:
+                dl = dice_loss_per_hyperedge(x_exp, target) # (B, K)
+                loss = (1 - dice_loss_coef) * loss + dice_loss_coef * dl
+            return loss
         
         ### Compute lowest-loss permutation (no grad)
         with torch.no_grad():
@@ -117,15 +132,21 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None,
     
     ### Compute loss with aligned target
     total_loss = loss_fn(input, target_aligned, reduction='none')
-    
-    ### Average over matrix dimensions, considering only valid entries
-    if node_mask is not None:
+
+    if node_mask is None:
+        ### Average over matrix dimensions
+        total_loss = total_loss.mean(dim=(1, 2))
+    else:
+        ### Average over matrix dimensions, considering only valid entries
         ### Note: assumes that True entries correspond to _padded_ nodes
         num_valid_nodes = (~node_mask).sum(dim=1)
         num_total_entries = num_valid_nodes * K + K  # valid_nodes * edges + indicators
         total_loss = total_loss.sum(dim=(1, 2)) / (num_total_entries.float() + 1e-8)
-    else:
-        total_loss = total_loss.mean(dim=(1, 2))
+
+    if dice_loss_coef > 0:
+        ### Add dice loss if specified
+        dl = dice_loss_per_hyperedge(input, target_aligned).mean(dim=1)
+        total_loss = (1 - dice_loss_coef) * total_loss + dice_loss_coef * dl
 
     if return_indices:
         return total_loss, indices

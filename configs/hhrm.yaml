@@ -9,6 +9,7 @@ hidden_dim: &H 36
 timestep_embedding: true
 time_dim: &T 8
 freq_dim: 64
+fourier_features: false
 
 node_embedder:
     input_dim: *F # this gets overwritten in hhrm.py
@@ -42,10 +43,13 @@ indicator_predictor:
     output_dim: 1
     activation: relu
 
+logit_offset: 0
+
 hrm:
     iters_L: 2
     iters_H: 2
     segments: 8
     use_draft: false
-    persistent_A:
-        masked_attention_threshold: 0.05
+    # persistent_A:
+    #     dummy: null
+        # masked_attention_threshold: 0.05
