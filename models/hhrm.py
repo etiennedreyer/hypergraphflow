@@ -5,6 +5,7 @@ import yaml
 from models.attention import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
+from models.fourier import RandomFourierEmbedder
 from dataclasses import dataclass
 import math
 
@@ -36,6 +37,7 @@ class HHRM(nn.Module):
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
+        self.fourier_features = self.config['fourier_features']
         self.output_norm = self.config.get('output_norm', None)
 
         ### Hierarchical reasoning parameters
@@ -57,10 +59,19 @@ class HHRM(nn.Module):
         self.register_buffer("z_L_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
         self.register_buffer("z_H_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
 
+        ### Fourier feature embedding
+        self.num_fourier_features = 0
+        if self.fourier_features:
+            self.num_fourier_features = 20 * self.num_node_features
+            self.fourier_embedder = RandomFourierEmbedder(
+                    input_dim=self.num_node_features,
+                    output_dim=self.num_fourier_features,
+                )
+
         ### Node feature embedding
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
-            input_dim=self.num_node_features,
+            input_dim=self.num_node_features + self.num_fourier_features,
             layers=emb_cfg['layers'],
             output_dim=emb_cfg['output_dim'],
             activation=emb_cfg['activation']
@@ -211,6 +222,9 @@ class HHRM(nn.Module):
 
         ### Input embedding
         if input_state.shape[-1] == self.num_node_features:
+            if self.fourier_features:
+                fourier_emb = self.fourier_embedder(input_state)
+                input_state = torch.cat([input_state, fourier_emb], dim=-1)
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
@@ -359,6 +373,9 @@ class HTRM(HHRM):
 
         ### Input embedding
         if input_state.shape[-1] == self.num_node_features:
+            if self.fourier_features:
+                fourier_emb = self.fourier_embedder(input_state)
+                input_state = torch.cat([input_state, fourier_emb], dim=-1)
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
