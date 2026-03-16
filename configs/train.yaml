@@ -13,7 +13,7 @@ nray: 8
 seed: 123456
 accelerator: 'cuda'
 devices: [0]
-dice_loss_coef: 0.0
+dice_loss_coef: 0.5
 
 dl_train:
   total_size: 20000

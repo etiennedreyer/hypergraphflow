@@ -132,6 +132,9 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None,
     
     ### Compute loss with aligned target
     total_loss = loss_fn(input, target_aligned, reduction='none')
+    if masks is not None:
+        for mask in masks:
+            total_loss += loss_fn(mask, target_aligned, reduction='none')
 
     if node_mask is None:
         ### Average over matrix dimensions
@@ -146,6 +149,9 @@ def LAP_loss(input, target, n=0, return_indices=False, masks=None, loss_fn=None,
     if dice_loss_coef > 0:
         ### Add dice loss if specified
         dl = dice_loss_per_hyperedge(input, target_aligned).mean(dim=1)
+        if masks is not None:
+            for mask in masks:
+                dl += dice_loss_per_hyperedge(mask, target_aligned).mean(dim=1)
         total_loss = (1 - dice_loss_coef) * total_loss + dice_loss_coef * dl
 
     if return_indices:

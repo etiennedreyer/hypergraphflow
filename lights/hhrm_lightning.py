@@ -58,7 +58,14 @@ class HHRMLightning(BaseLightning):
 
             self.optimizers().zero_grad()
 
-            pred, hid_state = self.net(hid_state, node_feats, segment=s)
+            if self.net.persistent_A and self.net.masked_attention_frequency == 'layer':
+                pred, hid_state, A_per_layer = self.net(hid_state, node_feats, segment=s, return_A_per_layer=True)
+                ### HACK: manually append indicator to masks
+                ind = pred[:, :, -1:]
+                A_per_layer = [torch.cat([mask, ind], dim=2) for mask in A_per_layer]
+            else:
+                pred, hid_state = self.net(hid_state, node_feats, segment=s, return_A_per_layer=return_A_per_layer)
+                A_per_layer = None
 
             # ### Rearrange ground truth based on 0th segment prediction; switch off hungarian for later segments
             # if s == 1:
@@ -72,7 +79,8 @@ class HHRMLightning(BaseLightning):
                                       return_indices=True,
                                       parallel=False,
                                       hungarian=do_hungarian,
-                                      node_mask=node_mask)
+                                      node_mask=node_mask,
+                                      masks=A_per_layer)
             loss = loss.mean()
 
             self.manual_backward(loss)

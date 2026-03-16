@@ -1,4 +1,4 @@
-name: hhrm
+name: mask2former
 
 ### dimensions
 num_node_features: &F 3
@@ -6,7 +6,7 @@ num_edges: &K 42
 hidden_dim: &H 36
 
 ### attention
-timestep_embedding: true
+timestep_embedding: false
 time_dim: &T 8
 freq_dim: 64
 fourier_features: false
@@ -21,7 +21,7 @@ node_CA_L:
     model_dim: *H
     c_dim: *T
     num_heads: 3
-    num_layers: 4
+    num_layers: 3
     gated: false
     scaling: true
     activation: silu
@@ -31,7 +31,7 @@ edge_CA_H:
     model_dim: *H
     c_dim: *T
     num_heads: 3
-    num_layers: 4
+    num_layers: 5
     gated: false
     scaling: true
     activation: silu
@@ -43,13 +43,14 @@ indicator_predictor:
     output_dim: 1
     activation: relu
 
-logit_offset: 0
+# logit_offset: 0
 
 hrm:
-    iters_L: 2
-    iters_H: 2
-    segments: 8
-    full_backprop: false
+    iters_L: 1
+    iters_H: 1
+    segments: 1
+    full_backprop: true
+    use_draft: false
     persistent_A:
-        masked_attention_frequency: segment # layer or segment
+        masked_attention_frequency: layer # layer or segment
         masked_attention_threshold: 0.05
