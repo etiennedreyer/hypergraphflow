@@ -189,17 +189,46 @@ class HHRM(nn.Module):
             out = out + self.logit_offset
         return out
 
-    def normalize_output(self, im):
-        if self.output_norm == 'sigmoid':
+    @staticmethod
+    def normalize_output(im, output_norm, indicator_included=True):
+
+        if indicator_included:
+            inc = im[..., :-1]
+            ind = im[..., -1:]
+        else:
+            inc = im
+
+        if output_norm == 'sigmoid':
             im = torch.sigmoid(im)
-        elif self.output_norm == 'softmax':
-            im = torch.cat([
-                F.softmax(im[..., :-1], dim=1),
-                torch.sigmoid(im[..., -1:])
-            ], dim=-1)
-        elif self.output_norm is not None:
-            raise ValueError(f"Unknown output_norm {self.output_norm}")
+        elif 'softmax' in output_norm:
+            if output_norm == 'softmax':
+                inc = F.softmax(inc, dim=1)
+            elif output_norm == 'log_softmax':
+                inc = F.log_softmax(inc, dim=1)
+            if indicator_included:
+                ind = torch.sigmoid(ind)
+                im = torch.cat([inc, ind], dim=-1)
+            else:
+                im = inc
+        elif output_norm is not None:
+            raise ValueError(f"Unknown output_norm {output_norm}")
+        
         return im
+    
+    @staticmethod
+    def preds_to_probs(preds, output_norm):
+        if output_norm is None:
+            probs = torch.sigmoid(preds)
+        elif output_norm in ['sigmoid', 'softmax']:
+            probs = preds
+        elif output_norm == 'log_softmax':
+            probs = torch.cat([
+                torch.exp(preds[..., :-1]), 
+                preds[..., -1:]],
+                dim=-1)
+        else:
+            raise ValueError(f"Unknown output_norm {output_norm}")
+        return probs
 
     def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, return_A_per_layer=False):
 
@@ -278,7 +307,8 @@ class HHRM(nn.Module):
                         ### Persistent matrix update
                         if self.persistent_A and self.masked_attention_frequency == 'layer':
                             A = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
-                            A_H = A.detach().sigmoid()
+                            A = self.normalize_output(A, self.output_norm, indicator_included=False)
+                            A_H = A.detach()
                             if self.masked_attention_threshold is not None:
                                 A_H = A_H < self.masked_attention_threshold
                             A_per_layer.append(A)
@@ -312,7 +342,8 @@ class HHRM(nn.Module):
             ### Persistent matrix update
             if self.persistent_A and self.masked_attention_frequency == 'layer' and b < len(self.CA_H) - 1:
                 A = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
-                A_H = A.detach().sigmoid()
+                A = self.normalize_output(A, self.output_norm, indicator_included=False)
+                A_H = A.detach()
                 if self.masked_attention_threshold is not None:
                     A_H = A_H < self.masked_attention_threshold
                 A_per_layer.append(A)
@@ -323,15 +354,14 @@ class HHRM(nn.Module):
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
         ### normalization
-        im = self.normalize_output(im)
+        im = self.normalize_output(im, self.output_norm)
 
         ### persistent A update
         if self.persistent_A:
-            A = inc.detach()
+            A = im.detach()[..., :-1]
             if self.masked_attention_threshold is not None:
                 ### convert to boolean mask
-                ### TODO: implement softmax version too
-                A = A.sigmoid() < self.masked_attention_threshold
+                A = A < self.masked_attention_threshold
         else:
             A = None
 
@@ -450,15 +480,14 @@ class HTRM(HHRM):
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
         ### normalization
-        im = self.normalize_output(im)
+        im = self.normalize_output(im, self.output_norm)
 
         ### persistent A update
         if self.persistent_A:
             A = inc.detach()
             if self.masked_attention_threshold is not None:
                 ### convert to boolean mask
-                ### TODO: implement softmax version too
-                A = A.sigmoid() < self.masked_attention_threshold
+                A = self.normalize_output(A, self.output_norm) < self.masked_attention_threshold
         else:
             A = None
 

@@ -127,6 +127,12 @@ class AttentionLayer(nn.Module):
         elif key_padding_mask is not None:
             attn_mask = key_padding_mask
 
+        ### check for and hotfix fully masked queries
+        if attn_mask.dtype == torch.bool:
+            all_masked = attn_mask.all(dim=-1, keepdim=True)
+            if all_masked.any():
+                attn_mask = attn_mask & ~all_masked
+
         return attn_mask
 
     def attention(self, q, k, v, attn_mask=None):

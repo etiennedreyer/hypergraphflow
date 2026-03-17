@@ -1,9 +1,9 @@
-name: mask2former
+name: transformer
 
 ### dimensions
 num_node_features: &F 3
 num_edges: &K 42
-hidden_dim: &H 72
+hidden_dim: &H 36
 
 ### attention
 timestep_embedding: false
@@ -20,7 +20,7 @@ node_embedder:
 node_CA_L:
     model_dim: *H
     c_dim: *T
-    num_heads: 4
+    num_heads: 3
     num_layers: 3
     gated: false
     scaling: true
@@ -30,7 +30,7 @@ node_CA_L:
 edge_CA_H:
     model_dim: *H
     c_dim: *T
-    num_heads: 4
+    num_heads: 3
     num_layers: 5
     gated: false
     scaling: true
@@ -50,7 +50,6 @@ hrm:
     iters_H: 1
     segments: 1
     full_backprop: true
-    use_draft: false
-    persistent_A:
-        masked_attention_frequency: layer # layer or segment
-        masked_attention_threshold: 0.05
+    # persistent_A:
+    #     masked_attention_frequency: layer # layer or segment
+    #     masked_attention_threshold: 0.05

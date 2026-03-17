@@ -64,7 +64,7 @@ class HHRMLightning(BaseLightning):
                 ind = pred[:, :, -1:]
                 A_per_layer = [torch.cat([mask, ind], dim=2) for mask in A_per_layer]
             else:
-                pred, hid_state = self.net(hid_state, node_feats, segment=s, return_A_per_layer=return_A_per_layer)
+                pred, hid_state = self.net(hid_state, node_feats, segment=s, return_A_per_layer=False)
                 A_per_layer = None
 
             # ### Rearrange ground truth based on 0th segment prediction; switch off hungarian for later segments
@@ -90,13 +90,12 @@ class HHRMLightning(BaseLightning):
             hid_state = hid_state.detach()
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            pred = torch.sigmoid(pred)
+        probs = HHRM.preds_to_probs(pred, self.net.output_norm)
 
         with torch.no_grad():
             logs = {
                 "loss": loss,
-                "mae":  metrics.mae_cardinality(pred, im_truth),
+                "mae":  metrics.mae_cardinality(probs, im_truth),
             }
         self.log_dict({f"{k}/train":v for k,v in logs.items()})
 
@@ -115,10 +114,7 @@ class HHRMLightning(BaseLightning):
                         node_mask=node_mask).mean()
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            probs = [torch.sigmoid(pred) for pred in preds]
-        else:
-            probs = preds
+        probs = [HHRM.preds_to_probs(pred, self.net.output_norm) for pred in preds]
 
         d_feats = min(node_feats.shape[-1], 3) ### TODO softcode this in config.
 

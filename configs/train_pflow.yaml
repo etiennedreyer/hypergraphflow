@@ -8,15 +8,16 @@ scheduler: {
 }
 learning_rate: 1.0e-4
 num_epochs: 200
-num_workers: &W 12
-nray: 16
+num_workers: &W 6
+nray: 8
 seed: 123456
 accelerator: 'cuda'
 devices: [0]
+dice_loss_coef: 0.0
 
 dl_train:
   total_size: 200000
-  batch_size: 256
+  batch_size: 64
   shuffle: true
   num_workers: *W
 

@@ -46,8 +46,11 @@ class BaseLightning(pl.LightningModule):
             loss_fn = F.binary_cross_entropy
             print("Using BCE loss (assumes sigmoid on output)")
         elif self.config['output_norm'] == 'softmax':
-            loss_fn = metrics.kld_plus_ind_loss
+            loss_fn = partial(metrics.kld_plus_ind_loss, log_inputs=False)
             print("Using KLD incidence and BCE indicator loss (assumes softmax on output)")
+        elif self.config['output_norm'] == 'log_softmax':
+            loss_fn = partial(metrics.kld_plus_ind_loss, log_inputs=True)
+            print("Using KLD incidence and BCE indicator loss (assumes log-softmax on output)")
         else:
             raise ValueError(f"Unknown output_norm {self.config['output_norm']}")
 

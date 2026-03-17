@@ -97,7 +97,7 @@ def get_model(config):
             model_config=config['model'],
             train_config=config,
         )
-    elif 'hhrm' in config['model']['name']:
+    elif 'hhrm' in config['model']['name'] or 'mask2former' in config['model']['name'] or 'transformer' in config['model']['name']:
         from lights.hhrm_lightning import HHRMLightning
 
         model = HHRMLightning(
@@ -142,7 +142,7 @@ def get_trainer(config, model_name, project_name, log=True, resume_id=None):
         os.remove(temp_config_path)
 
         ### Log code
-        run.log_code(".")
+        # run.log_code(".") ### TODO not working
 
         ### Checkpoints
         checkpoint_callback = ModelCheckpoint(

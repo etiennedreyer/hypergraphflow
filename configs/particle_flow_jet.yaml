@@ -1,8 +1,8 @@
 name: particle_flow_jet
 filename: [
-    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_20_100kseg_bw100.0.root",
-    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_21_100kseg_bw100.0.root",
-    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Jan06_2025/train_5M_cells256/singlejet_22_100kseg_bw100.0.root"
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Feb10_2026/train_topup3_20M_cells256/singlejet_470_100kseg_bw100.0.root",
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Feb10_2026/train_topup3_20M_cells256/singlejet_471_100kseg_bw100.0.root",
+    "/storage/agrp/nilotpal/COCOA_for_HEPCLIP/run/Feb10_2026/train_topup3_20M_cells256/singlejet_472_100kseg_bw100.0.root",
 ]
 
 D: 15
