@@ -164,6 +164,8 @@ def get_trainer(config, model_name, project_name, log=True, resume_id=None):
         devices=config.get('devices', [0]),
         max_epochs=config['num_epochs'],
         check_val_every_n_epoch=1,
+        limit_train_batches=config.get('limit_train_batches', None),
+        limit_val_batches=config.get('limit_val_batches', None),
         logger=logger,
         callbacks=callbacks,
         # precision="16-mixed" if torch.cuda.is_available() else 32,
