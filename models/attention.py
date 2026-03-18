@@ -234,6 +234,7 @@ class SelfAttentionLayer(AttentionLayer):
 
         self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim)
         nn.init.xavier_uniform_(self.qkv_proj.weight)
+        nn.init.constant_(self.qkv_proj.bias, 0)
 
     def get_qkv(self, x, y=None):
         q, k ,v = self.qkv_proj(x).chunk(3, dim=-1)
