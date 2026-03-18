@@ -5,6 +5,7 @@ import yaml
 from models.attention import DecoderBlock, ContextProjector
 from models.time import TimestepEmbedder
 from models.mlp import MLP
+from models.fourier import RandomFourierEmbedder
 from dataclasses import dataclass
 import math
 
@@ -12,9 +13,13 @@ import math
 class HiddenState:
     z_L: torch.Tensor
     z_H: torch.Tensor
+    z_H_var: torch.Tensor = None
+    A: torch.Tensor = None
 
     def detach(self):
-        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach())
+        return HiddenState(z_L=self.z_L.detach(), z_H=self.z_H.detach(),
+                           z_H_var=self.z_H_var.detach() if self.z_H_var is not None else None,
+                           A=self.A.detach() if self.A is not None else None)
 
 class HHRM(nn.Module):
 
@@ -32,6 +37,7 @@ class HHRM(nn.Module):
         self.num_edges = self.config['num_edges']
         self.hidden_dim = self.config['hidden_dim']
         self.timestep_embedding = self.config['timestep_embedding']
+        self.fourier_features = self.config['fourier_features']
         self.output_norm = self.config.get('output_norm', None)
 
         ### Hierarchical reasoning parameters
@@ -39,23 +45,46 @@ class HHRM(nn.Module):
         self.iters_L = hrm_cfg['iters_L']
         self.iters_H = hrm_cfg['iters_H']
         self.segments = hrm_cfg['segments']
-        self.use_draft = hrm_cfg.get('use_draft', False)
+        self.full_backprop = hrm_cfg.get('full_backprop', False)
+        if 'persistent_A' in hrm_cfg:
+            mask_cfg = hrm_cfg['persistent_A']
+            print("Using persistent A with config:", mask_cfg)
+            self.persistent_A = True
+            self.masked_attention_frequency = mask_cfg.get('update_per', 'layer')
+            assert self.masked_attention_frequency in ['layer', 'segment'], "update_per must be 'layer' or 'segment'"
+            self.masked_attention_threshold = mask_cfg.get('masked_attention_threshold', None)
+        else:
+            self.persistent_A = False
 
         ### Initial, static hidden states
-        self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
-        self.register_buffer("z_H_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        # self.register_buffer("z_L_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        # self.register_buffer("z_H_init", torch.nn.init.trunc_normal_(torch.empty(1, self.hidden_dim)))
+        self.register_buffer("z_L_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
+        self.register_buffer("z_H_init", torch.zeros(1, self.hidden_dim)) ### EXPERIMENTAL
+
+        ### Fourier feature embedding
+        self.num_fourier_features = 0
+        if self.fourier_features:
+            self.num_fourier_features = 20 * self.num_node_features
+            self.fourier_embedder = RandomFourierEmbedder(
+                    input_dim=self.num_node_features,
+                    output_dim=self.num_fourier_features,
+                )
 
         ### Node feature embedding
         emb_cfg = self.config['node_embedder']
         self.node_embedder = MLP(
-            input_dim=self.num_node_features,
+            input_dim=self.num_node_features + self.num_fourier_features,
             layers=emb_cfg['layers'],
             output_dim=emb_cfg['output_dim'],
             activation=emb_cfg['activation']
         )
 
         ### Edge positional embedding
-        self.edge_embedder = nn.Embedding(self.num_edges, self.hidden_dim)
+        # self.edge_embedder = nn.Embedding(self.num_edges, self.hidden_dim)
+        self.edge_mu = nn.Parameter(torch.randn(1, 1, self.hidden_dim))
+        self.edge_logsigma = nn.Parameter(torch.zeros(1, 1, self.hidden_dim))
+        nn.init.xavier_uniform_(self.edge_logsigma)
         
         ### Injection layer norm
         self.norm_L = nn.LayerNorm(self.hidden_dim, elementwise_affine=False)
@@ -126,8 +155,19 @@ class HHRM(nn.Module):
                     activation=ind_pred_cfg['activation']
         )
 
+        if 'logit_offset' in self.config:
+            ### Learnable logit offset
+            self.logit_offset = nn.Parameter(torch.ones(1)*self.config['logit_offset'])
+
     def get_init_state(self):
-        return HiddenState(z_L=self.z_L_init, z_H=self.z_H_init)
+        return HiddenState(z_L=self.z_L_init, 
+                           z_H=self.z_H_init)
+
+    def get_edge_embedding(self, batch_size, device):
+        mu = self.edge_mu.expand(batch_size, self.num_edges, -1)
+        sigma = self.edge_logsigma.exp().expand(batch_size, self.num_edges, -1)
+        z_H_var = mu + sigma * torch.randn(mu.shape, device=device)
+        return z_H_var
 
     def get_time_emb(self, segment: int, iter_L: int, iter_H: int):
         if self.timestep_embedding:
@@ -140,25 +180,66 @@ class HHRM(nn.Module):
         else:
             return None
 
-    def dot_prod_incidence(self, q, k):
-        return (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+    def dot_prod_incidence(self, q, k, key_padding_mask=None):
+        out = (q @ torch.transpose(k, 1, 2)) / math.sqrt(self.hidden_dim) # (B, Nq, Nk)
+        if key_padding_mask is not None:
+            out = out.masked_fill(key_padding_mask.unsqueeze(1), -50.0)
+            ### Note: using 50.0 b/c -inf gives NaNs in binary_cross_entropy_with_logits
+        if hasattr(self, 'logit_offset'):
+            out = out + self.logit_offset
+        return out
 
-    def normalize_output(self, im):
-        if self.output_norm == 'sigmoid':
+    @staticmethod
+    def normalize_output(im, output_norm, indicator_included=True):
+
+        if indicator_included:
+            inc = im[..., :-1]
+            ind = im[..., -1:]
+        else:
+            inc = im
+
+        if output_norm == 'sigmoid':
             im = torch.sigmoid(im)
-        elif self.output_norm == 'softmax':
-            im = torch.cat([
-                F.softmax(im[..., :-1], dim=1),
-                torch.sigmoid(im[..., -1:])
-            ], dim=-1)
-        elif self.output_norm is not None:
-            raise ValueError(f"Unknown output_norm {self.output_norm}")
+        elif 'softmax' in output_norm:
+            if output_norm == 'softmax':
+                inc = F.softmax(inc, dim=1)
+            elif output_norm == 'log_softmax':
+                inc = F.log_softmax(inc, dim=1)
+            if indicator_included:
+                ind = torch.sigmoid(ind)
+                im = torch.cat([inc, ind], dim=-1)
+            else:
+                im = inc
+        elif output_norm is not None:
+            raise ValueError(f"Unknown output_norm {output_norm}")
+        
         return im
+    
+    @staticmethod
+    def preds_to_probs(preds, output_norm):
+        if output_norm is None:
+            probs = torch.sigmoid(preds)
+        elif output_norm in ['sigmoid', 'softmax']:
+            probs = preds
+        elif output_norm == 'log_softmax':
+            probs = torch.cat([
+                torch.exp(preds[..., :-1]), 
+                preds[..., -1:]],
+                dim=-1)
+        else:
+            raise ValueError(f"Unknown output_norm {output_norm}")
+        return probs
 
-    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int,draft=None):
+    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, return_A_per_layer=False):
 
         z_L = hid_state.z_L
         z_H = hid_state.z_H
+        A   = hid_state.A
+
+        if A is None and self.persistent_A:
+            ### Initialize A if not passed
+            shape = (input_state.shape[0], self.num_edges, input_state.shape[1])
+            A = torch.zeros(shape, device=input_state.device).float()
 
         ### Node mask
         node_mask = torch.isnan(input_state).any(dim=-1)
@@ -168,22 +249,28 @@ class HHRM(nn.Module):
             node_mask = None
 
         ### Edge mask
-        if self.use_draft and (draft is not None):
-            ind_draft = draft[:, :, -1:] # (B, K, 1)
-            edge_mask = (ind_draft < 0.2).squeeze(-1)
-        else:
-            edge_mask = None
+        edge_mask = None
 
         ### Input embedding
         if input_state.shape[-1] == self.num_node_features:
+            if self.fourier_features:
+                fourier_emb = self.fourier_embedder(input_state)
+                input_state = torch.cat([input_state, fourier_emb], dim=-1)
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
-        edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
-        edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        # edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
+        # edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        if hid_state.z_H_var is None:
+            edge_pos_emb = self.get_edge_embedding(input_state.shape[0], input_state.device)
+        else:
+            edge_pos_emb = hid_state.z_H_var
+
+        if self.persistent_A and self.masked_attention_frequency == 'layer':
+            A_per_layer = []
 
         ### Forward up to last iteration
-        with torch.no_grad():
+        with torch.set_grad_enabled(self.full_backprop):
             z_H = z_H + edge_pos_emb
             for iter_H in range(self.iters_H):
                 last_iter_H = (iter_H == self.iters_H - 1)
@@ -195,56 +282,93 @@ class HHRM(nn.Module):
                         ### Low-level update
                         z_L = self.norm_L(z_L + input_state)
                         t_emb = self.get_time_emb(segment, iter_L, iter_H)
+                        A_L = A.detach().permute(0, 2, 1) if (A is not None and self.masked_attention_frequency == 'segment') else None
                         for block in self.CA_L:
                             z_L = block(z_L, z_H,
                                         c=t_emb,
                                         key_padding_mask_SA=node_mask,
-                                        key_padding_mask_CA=edge_mask
+                                        key_padding_mask_CA=edge_mask,
+                                        attn_mask_CA=A_L
                                         )
 
                 if not last_iter_H:
                     ### High-level update
                     z_H = self.norm_H(z_H + edge_pos_emb)
                     t_emb = self.get_time_emb(segment, self.iters_L - 1, iter_H)
+                    A_H = A.detach() if A is not None else None
                     for block in self.CA_H:
                         z_H = block(z_H, z_L,
                                     c=t_emb,
                                     key_padding_mask_SA=edge_mask,
-                                    key_padding_mask_CA=node_mask
+                                    key_padding_mask_CA=node_mask,
+                                    attn_mask_CA=A_H
                                     )
+  
+                        ### Persistent matrix update
+                        if self.persistent_A and self.masked_attention_frequency == 'layer':
+                            A = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
+                            A = self.normalize_output(A, self.output_norm, indicator_included=False)
+                            A_H = A.detach()
+                            if self.masked_attention_threshold is not None:
+                                A_H = A_H < self.masked_attention_threshold
+                            A_per_layer.append(A)
 
-        assert not z_H.requires_grad and not z_L.requires_grad
+        assert self.full_backprop or \
+            (not z_H.requires_grad and not z_L.requires_grad and (A is None or not A.requires_grad))
 
         ### 1-step gradient approximation
         z_L = self.norm_L(z_L + input_state)
         t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
+        A_L = A.permute(0, 2, 1).detach() if (A is not None and self.masked_attention_frequency == 'segment') else None
         for block in self.CA_L:
             z_L = block(z_L, z_H,
                          c=t_emb,
                          key_padding_mask_SA=node_mask,
-                         key_padding_mask_CA=edge_mask
+                         key_padding_mask_CA=edge_mask,
+                         attn_mask_CA=A_L
                         )
 
         z_H = self.norm_H(z_H + edge_pos_emb)
         t_emb = self.get_time_emb(segment, self.iters_L - 1, self.iters_H - 1)
-        for block in self.CA_H:
+        A_H = A.detach() if A is not None else None
+        for b, block in enumerate(self.CA_H):
             z_H = block(z_H, z_L,
                          c=t_emb,
                          key_padding_mask_SA=edge_mask,
-                         key_padding_mask_CA=node_mask
+                         key_padding_mask_CA=node_mask,
+                         attn_mask_CA=A_H
                         )
 
+            ### Persistent matrix update
+            if self.persistent_A and self.masked_attention_frequency == 'layer' and b < len(self.CA_H) - 1:
+                A = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
+                A = self.normalize_output(A, self.output_norm, indicator_included=False)
+                A_H = A.detach()
+                if self.masked_attention_threshold is not None:
+                    A_H = A_H < self.masked_attention_threshold
+                A_per_layer.append(A)
+
         ### prediction
-        inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
+        inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
         ### normalization
-        im = self.normalize_output(im)
+        im = self.normalize_output(im, self.output_norm)
+
+        ### persistent A update
+        if self.persistent_A:
+            A = im.detach()[..., :-1]
+            if self.masked_attention_threshold is not None:
+                ### convert to boolean mask
+                A = A < self.masked_attention_threshold
+        else:
+            A = None
 
         ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
-
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), z_H_var=edge_pos_emb.detach(), A=A)
+        if return_A_per_layer and self.persistent_A and self.masked_attention_frequency == 'layer':
+            return im, state, A_per_layer
         return im, state
 
 
@@ -264,6 +388,7 @@ class HTRM(HHRM):
             if self.timestep_embedding:
                 self.context_projector_H = self.context_projector_L
 
+
     def get_time_emb(self, segment: int, iter_latent: int, iter_deep: int):
         if self.timestep_embedding:
             t_step = iter_latent + iter_deep * self.iters_latent + segment * self.iters_latent * self.iters_deep
@@ -275,10 +400,16 @@ class HTRM(HHRM):
         else:
             return None
 
-    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, draft=None):
+    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int):
 
         z_L = hid_state.z_L
         z_H = hid_state.z_H
+        A   = hid_state.A
+
+        if A is None and self.persistent_A:
+            ### Initialize A if not passed
+            shape = (input_state.shape[0], self.num_edges, input_state.shape[1])
+            A = torch.zeros(shape, device=input_state.device)
 
         ### Node mask
         node_mask = torch.isnan(input_state).any(dim=-1)
@@ -288,21 +419,24 @@ class HTRM(HHRM):
             node_mask = None
 
         ### Edge mask
-        if self.use_draft and (draft is not None):
-            ind_draft = draft[:, :, -1:] # (B, K, 1)
-            edge_mask = (ind_draft < 0.2).squeeze(-1)
-        else:
-            edge_mask = None
+        edge_mask = None
 
         ### Input embedding
         if input_state.shape[-1] == self.num_node_features:
+            if self.fourier_features:
+                fourier_emb = self.fourier_embedder(input_state)
+                input_state = torch.cat([input_state, fourier_emb], dim=-1)
             input_state = self.node_embedder(input_state)
 
         ### Hyperedge positional embedding
-        edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
-        edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        # edge_pos_idx = torch.arange(self.num_edges, device=input_state.device).unsqueeze(0).expand(input_state.shape[0], -1)
+        # edge_pos_emb = self.edge_embedder(edge_pos_idx)
+        if hid_state.z_H_var is None:
+            edge_pos_emb = self.get_edge_embedding(input_state.shape[0], input_state.device)
+        else:
+            edge_pos_emb = hid_state.z_H_var
 
-        def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment):
+        def latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment, A=None):
 
             z_H = self.norm_H(z_H + edge_pos_emb)
 
@@ -313,7 +447,8 @@ class HTRM(HHRM):
                     z_L = block(z_L, z_H,
                                 c=t_emb,
                                 key_padding_mask_SA=node_mask,
-                                key_padding_mask_CA=edge_mask
+                                key_padding_mask_CA=edge_mask,
+                                attn_mask_CA=A.permute(0, 2, 1) if A is not None else None
                                 )
 
             t_emb = self.get_time_emb(segment, self.iters_latent - 1, iter_deep)
@@ -321,32 +456,42 @@ class HTRM(HHRM):
                 z_H = block(z_H, z_L,
                             c=t_emb,
                             key_padding_mask_SA=edge_mask,
-                            key_padding_mask_CA=node_mask
+                            key_padding_mask_CA=node_mask,
+                            attn_mask_CA=A
                             )
             return z_L, z_H
         
-        def deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment):
+        def deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment, A=None, iter_deep=0):
             ### Recursing z_H-1 times to improve z_L and z_H (no gradient)
-            with torch.no_grad():
+            with torch.set_grad_enabled(self.full_backprop):
                 for iter_deep in range(self.iters_deep - 1):
-                    z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment)
+                    z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, iter_deep, segment, A=A)
             
             ### Last iteration with gradient
-            z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, self.iters_deep - 1, segment)
+            z_L, z_H = latent_recursion(z_L, z_H, input_state, edge_pos_emb, self.iters_deep - 1, segment, A=A)
 
             return z_L, z_H
 
-        z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment)
+        z_L, z_H = deep_recursion(z_L, z_H, input_state, edge_pos_emb, segment, A=A)
 
         ### prediction
-        inc = self.dot_prod_incidence(q=z_H, k=z_L) # (B, K, N)
+        inc = self.dot_prod_incidence(q=z_H, k=z_L, key_padding_mask=node_mask) # (B, K, N)
         ind = self.indicator_predictor(z_H) # (B, K, 1)
         im = torch.cat([inc, ind], dim=2) # (B, K, N+1)
 
         ### normalization
-        im = self.normalize_output(im)
+        im = self.normalize_output(im, self.output_norm)
+
+        ### persistent A update
+        if self.persistent_A:
+            A = inc.detach()
+            if self.masked_attention_threshold is not None:
+                ### convert to boolean mask
+                A = self.normalize_output(A, self.output_norm) < self.masked_attention_threshold
+        else:
+            A = None
 
         ### new state
-        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach())
+        state = HiddenState(z_L=z_L.detach(), z_H=z_H.detach(), A=A)
 
         return im, state

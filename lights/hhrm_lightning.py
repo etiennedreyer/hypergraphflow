@@ -46,6 +46,9 @@ class HHRMLightning(BaseLightning):
         node_feats, im_truth = batch
         B, K, N = im_truth.shape
 
+        # Detect node padding mask (True = padded)
+        node_mask = torch.isnan(node_feats).any(dim=-1)
+
         hid_state = self.net.get_init_state()
 
         target_indices = None
@@ -55,7 +58,14 @@ class HHRMLightning(BaseLightning):
 
             self.optimizers().zero_grad()
 
-            pred, hid_state = self.net(hid_state, node_feats, segment=s)
+            if self.net.persistent_A and self.net.masked_attention_frequency == 'layer':
+                pred, hid_state, A_per_layer = self.net(hid_state, node_feats, segment=s, return_A_per_layer=True)
+                ### HACK: manually append indicator to masks
+                ind = pred[:, :, -1:]
+                A_per_layer = [torch.cat([mask, ind], dim=2) for mask in A_per_layer]
+            else:
+                pred, hid_state = self.net(hid_state, node_feats, segment=s, return_A_per_layer=False)
+                A_per_layer = None
 
             # ### Rearrange ground truth based on 0th segment prediction; switch off hungarian for later segments
             # if s == 1:
@@ -68,7 +78,9 @@ class HHRMLightning(BaseLightning):
                                       n=min(self.config['nray'], B), 
                                       return_indices=True,
                                       parallel=False,
-                                      hungarian=do_hungarian)
+                                      hungarian=do_hungarian,
+                                      node_mask=node_mask,
+                                      masks=A_per_layer)
             loss = loss.mean()
 
             self.manual_backward(loss)
@@ -78,13 +90,12 @@ class HHRMLightning(BaseLightning):
             hid_state = hid_state.detach()
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            pred = torch.sigmoid(pred)
+        probs = HHRM.preds_to_probs(pred, self.net.output_norm)
 
         with torch.no_grad():
             logs = {
                 "loss": loss,
-                "mae":  metrics.mae_cardinality(pred, im_truth),
+                "mae":  metrics.mae_cardinality(probs, im_truth),
             }
         self.log_dict({f"{k}/train":v for k,v in logs.items()})
 
@@ -94,14 +105,16 @@ class HHRMLightning(BaseLightning):
 
         node_feats, im_truth = batch
 
+        # Detect node padding mask (True = padded)
+        node_mask = torch.isnan(node_feats).any(dim=-1)
+
         preds = self(node_feats, return_segments=True)
-        loss = self.loss(preds[-1], im_truth, n=min(self.config['nray'], node_feats.size(0))).mean()
+        loss = self.loss(preds[-1], im_truth, 
+                        n=min(self.config['nray'], node_feats.size(0)),
+                        node_mask=node_mask).mean()
 
         ### Convert to probs
-        if self.net.output_norm is None:
-            probs = [torch.sigmoid(pred) for pred in preds]
-        else:
-            probs = preds
+        probs = [HHRM.preds_to_probs(pred, self.net.output_norm) for pred in preds]
 
         d_feats = min(node_feats.shape[-1], 3) ### TODO softcode this in config.
 

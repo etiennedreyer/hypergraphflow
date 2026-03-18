@@ -30,19 +30,32 @@ class BaseLightning(pl.LightningModule):
         if 'particle_flow' in self.config['dataset']['name']:
             self.config['output_norm'] = 'softmax'
         
+        ### Dice loss coefficient
+        dice_loss_coef = self.config.get('dice_loss_coef', 0)
+        if dice_loss_coef > 0:
+            print(f"Using dice loss with coefficient {dice_loss_coef}")
+
+        ### Get base loss function
         if self.config.get('output_norm', None) is None:
             loss_fn = partial(F.binary_cross_entropy_with_logits, 
                               pos_weight=torch.tensor(self.config.get('pos_weight', 1.0)))
-            self.loss = partial(metrics.LAP_loss, loss_fn=loss_fn)
             print("Using BCE with logits loss (assumes logits output)")
+        elif dice_loss_coef > 0:
+            raise NotImplementedError("Dice loss not implemented for non-logit outputs")
         elif self.config['output_norm'] == 'sigmoid':
-            self.loss = partial(metrics.LAP_loss, loss_fn=F.binary_cross_entropy)
+            loss_fn = F.binary_cross_entropy
             print("Using BCE loss (assumes sigmoid on output)")
         elif self.config['output_norm'] == 'softmax':
-            self.loss = partial(metrics.LAP_loss, loss_fn=metrics.kld_plus_ind_loss)
+            loss_fn = partial(metrics.kld_plus_ind_loss, log_inputs=False)
             print("Using KLD incidence and BCE indicator loss (assumes softmax on output)")
+        elif self.config['output_norm'] == 'log_softmax':
+            loss_fn = partial(metrics.kld_plus_ind_loss, log_inputs=True)
+            print("Using KLD incidence and BCE indicator loss (assumes log-softmax on output)")
         else:
             raise ValueError(f"Unknown output_norm {self.config['output_norm']}")
+
+        self.loss = partial(metrics.LAP_loss, loss_fn=loss_fn, dice_loss_coef=dice_loss_coef)
+
 
     def configure_optimizers(self):
 

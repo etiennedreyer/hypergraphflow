@@ -127,6 +127,12 @@ class AttentionLayer(nn.Module):
         elif key_padding_mask is not None:
             attn_mask = key_padding_mask
 
+        ### check for and hotfix fully masked queries
+        if attn_mask.dtype == torch.bool:
+            all_masked = attn_mask.all(dim=-1, keepdim=True)
+            if all_masked.any():
+                attn_mask = attn_mask & ~all_masked
+
         return attn_mask
 
     def attention(self, q, k, v, attn_mask=None):
@@ -226,7 +232,7 @@ class SelfAttentionLayer(AttentionLayer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim, bias=False)
+        self.qkv_proj = nn.Linear(self.model_dim, 3*self.model_dim)
         nn.init.xavier_uniform_(self.qkv_proj.weight)
 
     def get_qkv(self, x, y=None):
@@ -239,10 +245,12 @@ class CrossAttentionLayer(AttentionLayer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.q_proj  = nn.Linear(self.model_dim,   self.model_dim, bias=False)
-        self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim, bias=False)
+        self.q_proj  = nn.Linear(self.model_dim,   self.model_dim)
+        self.kv_proj = nn.Linear(self.model_dim, 2*self.model_dim)
         nn.init.xavier_uniform_(self.q_proj.weight)
         nn.init.xavier_uniform_(self.kv_proj.weight)
+        nn.init.constant_(self.q_proj.bias, 0)
+        nn.init.constant_(self.kv_proj.bias, 0)
 
     def get_qkv(self, x, y):
         q = self.q_proj(x)
