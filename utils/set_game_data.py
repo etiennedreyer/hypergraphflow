@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 from itertools import product, combinations
 
@@ -48,21 +49,24 @@ class SetGameData(torch.utils.data.IterableDataset):
             yield X, I
  
 
-# Number of nodes is fixed but number of edges can vary, 
-# so we need to pad the incidence matrix to a fixed size
-# Also, add binary indicator feature
-def get_collate_fn(max_facets):
+### Number of nodes is fixed but number of edges can vary, 
+### so we need to pad the incidence matrix to a fixed size
+### Also, add binary indicator feature
+def get_collate_fn(max_facets, one_hot_encoding=True):
     def collate_fn(batch):
         points = []
         incidence = []
         for p, i in batch:
+            if one_hot_encoding:
+                ### p: (N, 4) with each feature in {0,1,2} -> (N, 12)
+                p = F.one_hot(p.long(), num_classes=3).float().reshape(p.size(0), -1)
             nf = i.size(0)
             if nf > max_facets:
                 print(f"Warning: number of hyperedges {nf} exceeds maximum {max_facets}, truncating")
                 i = i[:max_facets]
-            inc = torch.cat([i, torch.zeros(max_facets - nf, i.size(1))],dim=0)
+            inc = torch.cat([i, torch.zeros(max_facets - nf, i.size(1))], dim=0)
             inc = torch.cat([inc, torch.zeros(max_facets, 1)], dim=1)
-            inc[:nf,-1] = 1.
+            inc[:nf, -1] = 1.
             incidence.append(inc)
             points.append(p)
         return torch.stack(points), torch.stack(incidence)
