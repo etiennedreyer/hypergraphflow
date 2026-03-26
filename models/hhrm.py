@@ -192,6 +192,9 @@ class HHRM(nn.Module):
     @staticmethod
     def normalize_output(im, output_norm, indicator_included=True):
 
+        if output_norm is None:
+            return im
+
         if indicator_included:
             inc = im[..., :-1]
             ind = im[..., -1:]
@@ -400,7 +403,7 @@ class HTRM(HHRM):
         else:
             return None
 
-    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int):
+    def forward(self, hid_state: HiddenState, input_state: torch.Tensor, segment: int, return_A_per_layer=False):
 
         z_L = hid_state.z_L
         z_H = hid_state.z_H

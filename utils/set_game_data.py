@@ -5,17 +5,21 @@ from itertools import product, combinations
 
 
 class SetGameData(torch.utils.data.IterableDataset):
-    def __init__(self):
-        self.num_feats = 4
-        self.set_size = 3
-        self.hand_size = 12
+    def __init__(self, 
+                 set_size=3, 
+                 num_feats=4, 
+                 hand_size=12):
+
+        self.num_feats = num_feats
+        self.set_size = set_size
+        self.hand_size = hand_size
         # Generate all cards
         self.deck = np.array(list(product(range(self.set_size), 
                                           repeat=self.num_feats)))
 
     @staticmethod
     def triplet_is_set(cards):
-        return np.all(np.sum(cards, axis=0) % 3 == 0)
+        return np.all(np.sum(cards, axis=0) % self.set_size == 0)
 
     def find_solutions(self, X):
         # Find all Sets
@@ -52,18 +56,19 @@ class SetGameData(torch.utils.data.IterableDataset):
 ### Number of nodes is fixed but number of edges can vary, 
 ### so we need to pad the incidence matrix to a fixed size
 ### Also, add binary indicator feature
-def get_collate_fn(max_facets, one_hot_encoding=True):
+def get_collate_fn(max_facets, one_hot_encoding=True, num_classes=3):
     def collate_fn(batch):
         points = []
         incidence = []
         for p, i in batch:
             if one_hot_encoding:
-                ### p: (N, 4) with each feature in {0,1,2} -> (N, 12)
-                p = F.one_hot(p.long(), num_classes=3).float().reshape(p.size(0), -1)
+                ### E.g. p: (N, 4) with each feature in {0,1,2} -> (N, 12)
+                p = F.one_hot(p.long(), num_classes=num_classes).float().reshape(p.size(0), -1)
             nf = i.size(0)
             if nf > max_facets:
                 print(f"Warning: number of hyperedges {nf} exceeds maximum {max_facets}, truncating")
                 i = i[:max_facets]
+                nf = max_facets
             inc = torch.cat([i, torch.zeros(max_facets - nf, i.size(1))], dim=0)
             inc = torch.cat([inc, torch.zeros(max_facets, 1)], dim=1)
             inc[:nf, -1] = 1.
